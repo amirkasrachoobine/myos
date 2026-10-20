@@ -1,0 +1,9 @@
+config BR2_PACKAGE_MYOS_HELLO_CPP
+	bool "myos-hello-cpp"
+	depends on BR2_INSTALL_LIBSTDCPP
+	help
+	  Phase 0 smoke test for the C++ cross toolchain. The Phase 4
+	  shell (msh) and utilities will be packaged the same way.
+
+comment "myos-hello-cpp needs a toolchain w/ C++"
+	depends on !BR2_INSTALL_LIBSTDCPP

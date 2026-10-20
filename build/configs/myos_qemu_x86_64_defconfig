@@ -1,0 +1,45 @@
+# --- Target ---------------------------------------------------------------
+BR2_x86_64=y
+
+# --- Toolchain: Buildroot-built glibc + C++ (Rust needs glibc, OpenJDK too) -
+BR2_TOOLCHAIN_BUILDROOT_GLIBC=y
+BR2_TOOLCHAIN_BUILDROOT_CXX=y
+BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_6_18=y
+BR2_CCACHE=y
+BR2_GLOBAL_PATCH_DIR="board/qemu/patches"
+BR2_DOWNLOAD_FORCE_CHECK_HASHES=y
+
+# --- System ---------------------------------------------------------------
+BR2_TARGET_GENERIC_HOSTNAME="myos"
+BR2_TARGET_GENERIC_ISSUE="Welcome to myos (phase 0)"
+BR2_TARGET_GENERIC_ROOT_PASSWD="myos"
+BR2_TARGET_GENERIC_GETTY_PORT="ttyS0"
+BR2_SYSTEM_DHCP="eth0"
+BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_MYOS_PATH)/board/qemu-x86_64/rootfs-overlay"
+
+# --- Kernel: Buildroot's tested QEMU config + our fragment -----------------
+BR2_LINUX_KERNEL=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="6.18.7"
+BR2_LINUX_KERNEL_USE_CUSTOM_CONFIG=y
+BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="board/qemu/x86_64/linux.config"
+BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_MYOS_PATH)/board/qemu-x86_64/linux.fragment"
+BR2_LINUX_KERNEL_NEEDS_HOST_LIBELF=y
+
+# --- Root filesystem ------------------------------------------------------
+BR2_TARGET_ROOTFS_EXT2=y
+BR2_TARGET_ROOTFS_EXT2_4=y
+BR2_TARGET_ROOTFS_EXT2_SIZE="512M"
+# BR2_TARGET_ROOTFS_TAR is not set
+
+# --- Host tools: QEMU (so you don't need a system one) and Rust ------------
+BR2_PACKAGE_HOST_QEMU=y
+BR2_PACKAGE_HOST_QEMU_SYSTEM_MODE=y
+BR2_PACKAGE_HOST_RUSTC=y
+
+# --- Language runtimes on target -----------------------------------------
+BR2_PACKAGE_PYTHON3=y
+
+# --- myos packages (toolchain smoke tests) --------------------------------
+BR2_PACKAGE_MYOS_HELLO_RUST=y
+BR2_PACKAGE_MYOS_HELLO_CPP=y

@@ -1,0 +1,7 @@
+config BR2_PACKAGE_MYOS_HELLO_RUST
+	bool "myos-hello-rust"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	select BR2_PACKAGE_HOST_RUSTC
+	help
+	  Phase 0 smoke test for the Rust cross toolchain. The Phase 1
+	  init (PID 1) will be packaged the same way.
