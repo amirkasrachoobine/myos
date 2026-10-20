@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+"""Phase 0 smoke test: proves the Python runtime is in the image."""
+import platform
+import sys
+
+print(f"hello from Python {sys.version.split()[0]} on {platform.machine()}")

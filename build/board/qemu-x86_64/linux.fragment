@@ -1,0 +1,27 @@
+# Things the later phases rely on, made explicit so a base-config change
+# can't silently drop them.
+
+# Phase 1: our Rust PID 1 expects the kernel to populate /dev
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+CONFIG_PROC_FS=y
+CONFIG_SYSFS=y
+CONFIG_TMPFS=y
+CONFIG_TMPFS_POSIX_ACL=y
+CONFIG_CGROUPS=y
+CONFIG_SIGNALFD=y
+CONFIG_EPOLL=y
+
+# Phase 2: IPC bus is Unix sockets
+CONFIG_UNIX=y
+
+# Serial console + virtio devices used by QEMU
+CONFIG_SERIAL_8250=y
+CONFIG_SERIAL_8250_CONSOLE=y
+CONFIG_VIRTIO_PCI=y
+CONFIG_VIRTIO_BLK=y
+CONFIG_VIRTIO_NET=y
+CONFIG_EXT4_FS=y
+
+# Clean poweroff from QEMU (`poweroff` in the guest, ACPI from the host)
+CONFIG_ACPI=y
