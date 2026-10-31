@@ -3,3 +3,15 @@
 /rust/**/target/
 /cpp/**/myos-hello-cpp
 __pycache__/
+output/
+buildroot/
+dl/
+*.log
+output/
+buildroot/
+dl/
+*.log
+output/
+buildroot/
+dl/
+*.log
