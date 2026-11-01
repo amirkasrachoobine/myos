@@ -2,7 +2,8 @@
 #
 #   make            fetch Buildroot, configure, build everything
 #   make run        boot the image in QEMU (serial console in this terminal)
-#   make test       automated boot test: waits for login, logs in, runs checks
+#   make test       automated boot test: waits for login, logs in, runs checks,
+#                   installs to a second disk and boots that (Phase 5)
 #   make menuconfig / linux-menuconfig / savedefconfig
 #
 # Options:
@@ -93,3 +94,17 @@ test-services:
 test-shell:
 	python3 tests/msh_test.py
 	python3 tests/utils_test.py
+
+# Phase 5: test myctl and myos-install on this machine. Settings, logs
+# (busd + logd on private sockets), MBR and copy checks run as you; with
+# sudo, also myctl against myos-init as PID 1 in namespaces, and
+# myos-install onto a loop-mounted image file that is then booted in QEMU
+# through GRUB (needs grub-pc-bin, busybox-static, qemu-system-x86 and a
+# readable kernel: MYOS_TEST_KERNEL=/path/to/bzImage). No Buildroot, ~1 min.
+.PHONY: test-admin
+test-admin:
+	$(MAKE) -s -C python/bus
+	cd rust/init && cargo build --release
+	cd rust/bus && cargo build --release
+	cd rust/services && cargo build --release
+	sudo env MYOS_TEST_KERNEL="$(MYOS_TEST_KERNEL)" python3 tests/admin_test.py --no-build

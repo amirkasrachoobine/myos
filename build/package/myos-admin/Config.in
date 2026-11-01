@@ -1,0 +1,19 @@
+config BR2_PACKAGE_MYOS_ADMIN
+	bool "myos-admin"
+	depends on BR2_PACKAGE_MYOS_BUS_PYTHON
+	select BR2_PACKAGE_E2FSPROGS # mkfs.ext4, for myos-install
+	help
+	  The myos admin tools (Phase 5), in Python:
+
+	    myctl         services (through init), logs (from logd) and
+	                  settings: hostname, network, enabled services
+	    myos-install  install the running system onto a disk with an
+	                  MBR, an ext4 root and GRUB, ready to boot
+
+	  myos-install needs GRUB for BIOS (BR2_TARGET_GRUB2_I386_PC),
+	  whose boot.img and core image this package copies to
+	  /usr/lib/myos/boot, and the kernel in /boot
+	  (BR2_LINUX_KERNEL_INSTALL_TARGET).
+
+comment "myos-admin needs myos-bus-python"
+	depends on !BR2_PACKAGE_MYOS_BUS_PYTHON

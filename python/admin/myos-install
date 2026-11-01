@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+"""myos-install: install myos onto a disk. `myos-install --help`."""
+import sys
+
+from myos.admin.install import main
+
+sys.exit(main())

@@ -29,3 +29,10 @@ CONFIG_EXT4_FS=y
 
 # Clean poweroff from QEMU (`poweroff` in the guest, ACPI from the host)
 CONFIG_ACPI=y
+
+# Phase 5: myos-install partitions disks (MBR), installs to image files via
+# loop devices, and the installed system finds its root by PARTUUID
+CONFIG_PARTITION_ADVANCED=y
+CONFIG_MSDOS_PARTITION=y
+CONFIG_EFI_PARTITION=y
+CONFIG_BLK_DEV_LOOP=y
