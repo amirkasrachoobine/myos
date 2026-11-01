@@ -10,4 +10,7 @@ source "$BR2_EXTERNAL_MYOS_PATH/package/myos-bus-python/Config.in"
 source "$BR2_EXTERNAL_MYOS_PATH/package/myos-bus-java/Config.in"
 
 source "$BR2_EXTERNAL_MYOS_PATH/package/myos-services/Config.in"
+
+source "$BR2_EXTERNAL_MYOS_PATH/package/myos-msh/Config.in"
+source "$BR2_EXTERNAL_MYOS_PATH/package/myos-utils/Config.in"
 endmenu

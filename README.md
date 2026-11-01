@@ -1,7 +1,8 @@
 # myos
 
 A headless Linux-based OS with a userland written in Rust, C++, Python and Java.
-Phases 0–3 are done: boot, the Rust init, the IPC bus, and the core services.
+Phases 0–4 are done: boot, the Rust init, the IPC bus, the core services,
+and the C++ shell and utilities.
 
 **Done when:** `make test` boots the image in QEMU, reaches the login prompt, and
 every language smoke test passes.
@@ -44,7 +45,7 @@ myos/
 │   ├── board/qemu-x86_64/   # kernel fragment, rootfs overlay
 │   └── package/             # our Buildroot packages, one per component
 ├── rust/                    # Rust crates (init, daemons from Phase 1)
-├── cpp/                     # C++ shell + utilities (Phase 4)
+├── cpp/                     # C++: bus client (Phase 2), msh + ls/cat/ps/top (Phase 4)
 ├── python/                  # admin tools (Phase 5)
 ├── java/                    # app runtime + SDK (Phase 6)
 ├── proto/                   # shared IPC definitions (Phase 2)
@@ -291,3 +292,92 @@ dnsmasq-base iproute2`). Without them, it skips that part.
 and builds in `services/`. Like `myos-bus`, it vendors its crates before the
 build. The C++, Python and Java bindings still cover only `bus/v1`. Phase 4
 adds `sysinfo` for C++, and Phase 5 adds `log` and `net` for Python.
+
+## Phase 4: the shell and utilities
+
+Root now logs in to **msh**, the myos shell (`cpp/msh`, `/usr/bin/msh`).
+`/bin/sh` is still BusyBox ash, so scripts are unaffected. The C++ **ls**,
+**cat**, **ps** and **top** (`cpp/utils`) replace BusyBox's applets of the
+same names; `busybox ps` and so on still work.
+
+**msh, the language.** Pipes; `;` `&&` `||` `&` `!`; redirections `<` `>`
+`>>` `2>` `2>&1` `&>` `<>` `3>&-`; `'single'`, `"double"` and `\`
+quoting; `$var` `${var:-default}` `${var:=x}` `${var:+x}` `${var?msg}`
+`${#var}` `${var%suffix}` `${var##prefix}`; `$(cmd)` and backticks;
+`$((arithmetic))`; `~`; globs `*` `?` `[...]`; `if`/`elif`/`else`,
+`while`, `until`, `for x in ...`, `break n`, `continue n`; `{ ...; }` and
+`( ... )`; functions with `local` and `return`; `set -e`, `set -x`;
+aliases; comments. Every boot-test command from Phases 0–3 now runs through
+it. Not supported: here-documents (`<<`), `case`, and bash-only syntax such
+as `[[ ]]` and arrays; use `sh` for those.
+
+**msh, interactively:**
+
+| Key | Does |
+|---|---|
+| ← → Home End, Ctrl-A/E/B/F, Alt-B/F | move |
+| Backspace, Del, Ctrl-K/U/W, Alt-D, Ctrl-Y | delete, kill, yank |
+| ↑ ↓, Ctrl-P/N | history |
+| Ctrl-R | search history as you type; Enter runs it, → edits it |
+| Tab | complete a command, file, directory (after `cd`) or `$VAR`; twice lists the choices |
+| Ctrl-C | cancel the line, or interrupt the running command (also a shell loop) |
+| Ctrl-Z | stop the running job; `fg`, `bg`, `jobs`, `kill %1`, `wait` |
+| Ctrl-L | clear the screen |
+| Ctrl-D | exit (on an empty line) |
+
+History is saved to `~/.msh_history` as you go (`HISTSIZE`, default 1000),
+so it survives reboots; `history`, `!!`, `!n`, `!-n`, `!prefix` and `!$`
+work. Commands typed over several lines (`for ...; do` then Enter) are
+saved as one line. Background jobs that finish are reported at the next
+prompt, and `exit` warns once if jobs are stopped.
+
+On the serial console the kernel doesn't know the terminal's size, so msh
+asks the terminal once at startup (a cursor position report) and passes the
+answer to the kernel, so `top` and `ls` use the full width too. After
+resizing your terminal window, run `resize`.
+
+Startup files: `/etc/mshrc` (prompt and the `ll`/`la`/`l` aliases), then
+`~/.mshrc`, for every interactive shell. msh doesn't read `/etc/profile`,
+which is sh syntax. Also: `msh -c 'cmds'`, `msh script args`, `msh -n`
+(syntax check only), and `help` for the builtins.
+
+**The utilities:**
+
+```sh
+ls -la          # also -A -h -n -i -d -R -t -S -r -U -F -p -1 -C --color=auto|always|never
+cat -n file     # also -b -s -E -T -v -A -e -t, and - for stdin
+ps              # PID USER TIME COMMAND for every process
+ps aux          # or -ef, -l, -o pid,user,%cpu,rss,args, -p 1,2 -u root -C logd --sort=-%cpu
+top             # P M N T sort, R reverse, c full commands, 1 per CPU, k kill, d delay, q quit
+top -b -n 1     # one plain frame, for scripts
+```
+
+ls and cat match GNU coreutils' output for these options, colours aside (the
+host test compares them byte for byte). `ps` and `top` call `sysinfo.Processes`,
+`System`, `Cpu` and `Memory` on the bus, so they show what `myos-sysinfo`
+shows, and CPU figures are sysinfod's one-second samples. If sysinfod or
+busd is down, they say which (`initctl status sysinfo`); top keeps running
+and recovers when sysinfod is back. `cpp/bus` now also generates the C++
+types for `sysinfo`, `log` and `net`.
+
+On your machine:
+
+```sh
+make test-shell               # msh vs bash, msh on a pseudo-terminal, ls/cat vs GNU,
+                              # ps/top vs /proc with busd + sysinfod; under a minute, no root
+cmake -S cpp/msh -B /tmp/msh && cmake --build /tmp/msh && /tmp/msh/msh
+make rebuild-myos-msh rebuild-myos-utils && make test
+```
+
+`make test-shell` needs `cmake`, `bash`, GNU coreutils, the protobuf tools
+from Phase 2 and cargo; `pip install pyte` adds the checks of what's drawn
+on screen (line editing, top).
+
+**Build notes.** `myos-msh` has no dependencies. Its option
+`BR2_PACKAGE_MYOS_MSH_LOGIN_SHELL` (on by default) sets root's shell in
+`/etc/passwd` and adds msh to `/etc/shells`; turning it off puts `/bin/sh`
+back. `myos-utils` builds against libmyosbus from staging and installs over
+BusyBox's links in `/bin` and `/usr/bin`. BusyBox installs with noclobber,
+so rebuilding BusyBox later leaves them in place. If msh ever fails to
+start, `myos.emergency` on the kernel command line still gives you a
+BusyBox shell (see Phase 1).

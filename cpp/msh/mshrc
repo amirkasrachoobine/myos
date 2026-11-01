@@ -1,0 +1,7 @@
+# /etc/mshrc: read by every interactive msh, before ~/.mshrc.
+# msh doesn't read /etc/profile (that's sh syntax for BusyBox ash).
+
+PS1='\u@\h:\w\$ '
+alias ll='ls -la'
+alias la='ls -A'
+alias l='ls -CF'
