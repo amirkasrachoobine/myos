@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+"""myctl: manage services, logs and settings on myos. `myctl help`."""
+import sys
+
+from myos.admin.myctl import main
+
+sys.exit(main())

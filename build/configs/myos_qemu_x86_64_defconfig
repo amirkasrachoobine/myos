@@ -11,7 +11,7 @@ BR2_DOWNLOAD_FORCE_CHECK_HASHES=y
 
 # --- System ---------------------------------------------------------------
 BR2_TARGET_GENERIC_HOSTNAME="myos"
-BR2_TARGET_GENERIC_ISSUE="Welcome to myos (phase 4)"
+BR2_TARGET_GENERIC_ISSUE="Welcome to myos (phase 5)"
 BR2_TARGET_GENERIC_ROOT_PASSWD="myos"
 BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_MYOS_PATH)/board/qemu-x86_64/rootfs-overlay"
 
@@ -23,6 +23,8 @@ BR2_LINUX_KERNEL_USE_CUSTOM_CONFIG=y
 BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="board/qemu/x86_64/linux.config"
 BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_MYOS_PATH)/board/qemu-x86_64/linux.fragment"
 BR2_LINUX_KERNEL_NEEDS_HOST_LIBELF=y
+# Phase 5: /boot/bzImage in the rootfs, for myos-install to copy
+BR2_LINUX_KERNEL_INSTALL_TARGET=y
 
 # --- Root filesystem ------------------------------------------------------
 BR2_TARGET_ROOTFS_EXT2=y
@@ -62,3 +64,16 @@ BR2_PACKAGE_MYOS_SERVICES=y
 # cat, ps and top replace BusyBox's (ps and top read sysinfod over the bus).
 BR2_PACKAGE_MYOS_MSH=y
 BR2_PACKAGE_MYOS_UTILS=y
+
+# --- Phase 5: Python admin tools (myctl, myos-install) -----------------------
+# myos-install needs mkfs.ext4 (e2fsprogs, selected by myos-admin) and GRUB
+# for BIOS. GRUB isn't used to boot this image (QEMU loads the kernel
+# directly); its boot sector and core image are what myos-install writes to
+# the disk it installs onto. The core image finds its config on the first
+# partition of the disk the BIOS booted from, and has the serial console
+# built in so the menu shows on ttyS0.
+BR2_PACKAGE_MYOS_ADMIN=y
+BR2_TARGET_GRUB2=y
+BR2_TARGET_GRUB2_I386_PC=y
+BR2_TARGET_GRUB2_BOOT_PARTITION="hd0,msdos1"
+BR2_TARGET_GRUB2_BUILTIN_MODULES_PC="boot linux ext2 fat part_msdos part_gpt normal biosdisk serial terminal"

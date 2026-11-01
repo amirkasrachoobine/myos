@@ -18,6 +18,10 @@ Phase 4: root logs in to msh, so every check above runs through it; then
          pipes, redirection, a multi-line loop, Tab completion, history,
          job control (Ctrl-Z, jobs, bg, kill %1) and Ctrl-C on the serial
          console, and the C++ ls, cat, ps and top in place of BusyBox's.
+Phase 5: myctl manages services, shows logs and changes settings; then
+         myos-install installs the system onto a second, empty virtual
+         disk, and a second boot from that disk alone (BIOS, GRUB, root by
+         PARTUUID) reaches the login prompt with every service running.
 
 Usage: python3 tests/boot_test.py [--timeout SECONDS]
 """
@@ -98,10 +102,63 @@ CHECKS = [
     ("ls -l /etc/myos/services/getty.toml", "-rw-r--r--"),
     ("ls -a /etc/myos", "services"),
     ("ps -o args= -C logd", "/usr/bin/logd"),
-    ("ps -p 1 -o pid= -o comm=", "1 myos-init"),
+    # comm is the name PID 1 was started as: the kernel runs /sbin/init
+    ("ps -p 1 -o pid= -o comm=", "1 init"),
     ("ps aux | head -1", "%CPU %MEM"),
     ("top -b -n 1 | head -2 | tail -1", "Tasks:"),
     ("echo services=$(top -b -n 1 | grep -c -E ' (busd|logd|netd|sysinfod)$')", "services=4"),
+    # Phase 5: myctl, services
+    ("myctl status | head -1", "SERVICE"),
+    ("echo up=$(myctl status | grep -c -E '^(busd|logd|netd|sysinfo|getty) +running ')", "up=5"),
+    ("myctl status getty", "Serial console login"),
+    ("myctl status nosuch; echo rc=$?", "rc=1"),
+    ("myctl restart sysinfo", "running   pid"),
+    ("myctl disable hello", "disabled"),
+    ("grep '^enabled' /etc/myos/services/hello.toml", "enabled = false"),
+    ("myctl enable hello", "done      exit code 0"),
+    ("grep '^enabled' /etc/myos/services/hello.toml", "enabled = true"),
+    # (output containing "# " would look like the prompt to this test)
+    ("myctl cat netd | grep -c '^exec = '", "1"),
+    # Phase 5: myctl, logs
+    ("logger -t phase5 via-myctl; sleep 0.5; myctl logs phase5", "notice  phase5["),
+    ("myctl logs -n 200 init | grep -q 'started sysinfo' && echo found", "found"),
+    ("echo n=$(myctl logs -p err -g via-myctl | wc -l)", "n=0"),
+    # Phase 5: myctl, settings
+    ("myctl get net.eth0.method", "dhcp"),
+    ("myctl set net.eth0.method bogus; echo rc=$?", "rc=1"),
+    ("myctl set net.eth0.method static; echo rc=$?", "needs net.eth0.address"),
+    ("myctl set net.eth0.method dhcp", "no changes"),
+    ("myctl set hostname phase5 >/dev/null; hostname; grep 127.0.1.1 /etc/hosts", "127.0.1.1\tphase5"),
+    ("myctl set hostname myos >/dev/null; hostname; cat /etc/hostname", "myos\nmyos"),
+    ("myctl config | grep -E '^(hostname|net.eth0.method|service.netd.enabled) '", "service.netd.enabled"),
+    ("myctl version", "myctl 0.5.0 (myos)"),
+    ("python3 -c 'from myos.log.v1 import log_pb2; from myos.net.v1 import net_pb2; print(\"bindings ok\")'", "bindings ok"),
+    # Phase 5: myos-install, refusals (the disk itself is installed below)
+    ("myos-install --list", "/dev/vda"),
+    ("myos-install --yes /dev/vda; echo rc=$?", "is in use (/"),
+    ("myos-install /dev/vdb </dev/null; echo rc=$?", "pass --yes"),
+    ("ls /boot/bzImage /usr/lib/myos/boot", "core.img"),
+]
+
+# Phase 5 done-check, part 1: install onto the empty second disk (/dev/vdb).
+INSTALL = ("myos-install --yes --hostname installed /dev/vdb", "done: /dev/vdb boots myos (hostname installed)")
+
+# Part 2: boot that disk alone, through GRUB, and look around.
+INSTALLED_CHECKS = [
+    ("cat /proc/cmdline", "root=PARTUUID="),
+    ("hostname", "installed"),
+    ("cat /sys/class/block/vda1/partition", "1"),
+    ("grep ^root /etc/myos/installed", "root = PARTUUID="),
+    ("id=$(grep -o 'PARTUUID=[0-9a-f]*' /proc/cmdline | cut -d= -f2); grep -c \"disk_id = $id\" /etc/myos/installed", "1"),
+    ("echo up=$(myctl status | grep -c -E '^(busd|logd|netd|sysinfo|getty) +running ')", "up=5"),
+    ("myctl status hello", "done      exit code 0"),
+    ("myos-net status | tail -1", "online"),
+    ("myctl logs -n 1000 kernel | grep -c 'Linux version'", "1"),
+    # Fresh logs and history: nothing from the system it was installed from.
+    ("grep -c -e phase3 -e phase5 /var/log/messages", "0"),
+    # ([e] so this command, saved to history as it runs, doesn't match itself)
+    ("grep -c 'msh-compl[e]te-test' /root/.msh_history", "0"),
+    ("readlink /proc/$$/exe", "/usr/bin/msh"),
 ]
 
 # Typed with control keys: (what to send, text that must appear before the
@@ -164,80 +221,64 @@ class Console:
         self.proc.stdin.flush()
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--timeout", type=int, default=180, help="seconds to wait for login prompt")
-    args = ap.parse_args()
+def login(con, timeout):
+    t0 = time.monotonic()
+    con.expect("login:", timeout)
+    elapsed = time.monotonic() - t0
+    con.send("root")
+    con.expect("Password:", 10)
+    con.send("myos")
+    con.expect(PROMPT, 15)
+    return elapsed
 
-    out_dir = pathlib.Path(os.environ.get("O", ROOT / "output"))
-    out_dir.mkdir(exist_ok=True)
-    log_path = out_dir / "boot_test.log"
+
+def run_checks(con, checks, failures, timeout=40):
+    for cmd, want in checks:
+        con.send(cmd)
+        out = con.expect(PROMPT, timeout)
+        # The console echoes the command line itself; only look at what follows it.
+        out = out.split("\n", 1)[1] if "\n" in out else ""
+        out = out.replace("\r\n", "\n")
+        ok = want in out
+        label = "wait for hello oneshot" if cmd is WAIT_HELLO else "reap orphans" if cmd is ZOMBIES else cmd
+        print(f"{'PASS' if ok else 'FAIL'}  {label}")
+        if not ok:
+            failures.append(label)
+            print(f"      expected {want!r} in:\n      " + out.strip().replace("\n", "\n      "))
+
+
+def power_off(con, proc, failures, label="poweroff"):
+    # Phase 1 done-check: BusyBox poweroff signals our PID 1, which stops
+    # the services, syncs, remounts / read-only and powers the VM off.
+    con.send("poweroff")
+    text = con.drain(30)
+    try:
+        proc.wait(timeout=10)  # QEMU closes its output a moment before it exits
+    except subprocess.TimeoutExpired:
+        pass
+    for what, ok in [
+        ("init stopped services", "[init] powering off: stopping services" in text),
+        ("init synced filesystems", "[init] syncing filesystems" in text),
+        ("kernel powered down", "reboot: Power down" in text),
+        ("QEMU exited", proc.poll() is not None),
+    ]:
+        print(f"{'PASS' if ok else 'FAIL'}  {label}: {what}")
+        if not ok:
+            failures.append(f"{label}: {what}")
+
+
+def boot(env, log_path, body):
+    """Boots QEMU (scripts/run-qemu.sh with `env`) and runs body(con, proc, failures)."""
     proc = subprocess.Popen(
         [str(ROOT / "scripts" / "run-qemu.sh")],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        env=dict(os.environ, **env),
     )
     failures = []
     with open(log_path, "w") as log:
         con = Console(proc, log)
         try:
-            t0 = time.monotonic()
-            con.expect("login:", args.timeout)
-            print(f"PASS  reached login prompt in {time.monotonic() - t0:.1f}s")
-
-            con.send("root")
-            con.expect("Password:", 10)
-            con.send("myos")
-            con.expect(PROMPT, 15)
-
-            for cmd, want in CHECKS:
-                con.send(cmd)
-                out = con.expect(PROMPT, 40)
-                # The console echoes the command line itself; only look at what follows it.
-                out = out.split("\n", 1)[1] if "\n" in out else ""
-                ok = want in out
-                label = "wait for hello oneshot" if cmd is WAIT_HELLO else "reap orphans" if cmd is ZOMBIES else cmd
-                print(f"{'PASS' if ok else 'FAIL'}  {label}")
-                if not ok:
-                    failures.append(label)
-                    print(f"      expected {want!r} in:\n      " + out.strip().replace("\n", "\n      "))
-
-            # Phase 4: control keys. A key starting with "<1>" means: wait a
-            # second (the command before it is running), then send the rest
-            # without a newline, as a key press.
-            for label, keys, want in INTERACTIVE:
-                out = ""
-                for i, k in enumerate(keys):
-                    if k.startswith("<1>"):
-                        time.sleep(1)
-                        con.send_raw(k[3:])
-                    else:
-                        con.send(k)
-                    if i + 1 < len(keys) and keys[i + 1].startswith("<1>"):
-                        continue  # still running: the key comes next
-                    out += con.expect(PROMPT, 40)
-                ok = want in out
-                print(f"{'PASS' if ok else 'FAIL'}  {label}")
-                if not ok:
-                    failures.append(label)
-                    print(f"      expected {want!r} in:\n      " + out.strip().replace("\n", "\n      "))
-
-            # Phase 1 done-check: BusyBox poweroff signals our PID 1, which stops
-            # the services, syncs, remounts / read-only and powers the VM off.
-            con.send("poweroff")
-            text = con.drain(30)
-            try:
-                proc.wait(timeout=10)  # QEMU closes its output a moment before it exits
-            except subprocess.TimeoutExpired:
-                pass
-            for label, ok in [
-                ("init stopped services", "[init] powering off: stopping services" in text),
-                ("init synced filesystems", "[init] syncing filesystems" in text),
-                ("kernel powered down", "reboot: Power down" in text),
-                ("QEMU exited", proc.poll() is not None),
-            ]:
-                print(f"{'PASS' if ok else 'FAIL'}  poweroff: {label}")
-                if not ok:
-                    failures.append(f"poweroff: {label}")
+            body(con, proc, failures)
         except (TimeoutError, RuntimeError) as e:
             failures.append(str(e))
             print(f"FAIL  {e}")
@@ -245,8 +286,74 @@ def main():
             if proc.poll() is None:
                 proc.kill()
             proc.wait()
+    return failures
 
-    print(f"\nconsole log: {log_path}")
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--timeout", type=int, default=180, help="seconds to wait for login prompt")
+    ap.add_argument("--install-timeout", type=int, default=600, help="seconds myos-install may take")
+    args = ap.parse_args()
+
+    out_dir = pathlib.Path(os.environ.get("O", ROOT / "output"))
+    out_dir.mkdir(exist_ok=True)
+    log_path = out_dir / "boot_test.log"
+    # Phase 5: an empty second disk to install onto, made fresh every run.
+    disk = out_dir / "images" / "install-test.img"
+    disk.parent.mkdir(exist_ok=True)
+    with open(disk, "wb") as f:
+        f.truncate(1 << 30)
+    installed = {}
+
+    def first_boot(con, proc, failures):
+        print(f"PASS  reached login prompt in {login(con, args.timeout):.1f}s")
+        run_checks(con, CHECKS, failures)
+
+        # Phase 4: control keys. A key starting with "<1>" means: wait a
+        # second (the command before it is running), then send the rest
+        # without a newline, as a key press.
+        for label, keys, want in INTERACTIVE:
+            out = ""
+            for i, k in enumerate(keys):
+                if k.startswith("<1>"):
+                    time.sleep(1)
+                    con.send_raw(k[3:])
+                else:
+                    con.send(k)
+                if i + 1 < len(keys) and keys[i + 1].startswith("<1>"):
+                    continue  # still running: the key comes next
+                out += con.expect(PROMPT, 40)
+            ok = want in out
+            print(f"{'PASS' if ok else 'FAIL'}  {label}")
+            if not ok:
+                failures.append(label)
+                print(f"      expected {want!r} in:\n      " + out.strip().replace("\n", "\n      "))
+
+        # Phase 5 done-check, part 1.
+        t0 = time.monotonic()
+        before = len(failures)
+        run_checks(con, [INSTALL], failures, timeout=args.install_timeout)
+        installed["ok"] = len(failures) == before
+        if installed["ok"]:
+            print(f"      (installed in {time.monotonic() - t0:.0f}s)")
+        power_off(con, proc, failures)
+
+    failures = boot({"EXTRA_DISK": str(disk)}, log_path, first_boot)
+
+    # Phase 5 done-check, part 2: boot the installed disk on its own.
+    if installed.get("ok"):
+        def second_boot(con, proc, failures):
+            con.expect("GNU GRUB", args.timeout)
+            print("PASS  installed disk: GRUB menu")
+            print(f"PASS  installed disk: reached login prompt in {login(con, args.timeout):.1f}s")
+            run_checks(con, INSTALLED_CHECKS, failures)
+            power_off(con, proc, failures, label="installed disk: poweroff")
+
+        log2 = out_dir / "boot_test_installed.log"
+        failures += boot({"DISK": str(disk)}, log2, second_boot)
+        print(f"\nconsole logs: {log_path}, {log2}")
+    else:
+        print(f"\nconsole log: {log_path}")
     if failures:
         print(f"Boot test FAILED ({len(failures)} failure(s))")
         return 1

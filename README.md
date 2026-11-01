@@ -1,8 +1,8 @@
 # myos
 
 A headless Linux-based OS with a userland written in Rust, C++, Python and Java.
-Phases 0–4 are done: boot, the Rust init, the IPC bus, the core services,
-and the C++ shell and utilities.
+Phases 0–5 are done: boot, the Rust init, the IPC bus, the core services,
+the C++ shell and utilities, and the Python admin tools.
 
 **Done when:** `make test` boots the image in QEMU, reaches the login prompt, and
 every language smoke test passes.
@@ -46,7 +46,7 @@ myos/
 │   └── package/             # our Buildroot packages, one per component
 ├── rust/                    # Rust crates (init, daemons from Phase 1)
 ├── cpp/                     # C++: bus client (Phase 2), msh + ls/cat/ps/top (Phase 4)
-├── python/                  # admin tools (Phase 5)
+├── python/                  # bus client (Phase 2), myctl + myos-install (Phase 5)
 ├── java/                    # app runtime + SDK (Phase 6)
 ├── proto/                   # shared IPC definitions (Phase 2)
 ├── scripts/run-qemu.sh
@@ -291,7 +291,7 @@ dnsmasq-base iproute2`). Without them, it skips that part.
 `../init/src/toml.rs`, so `build/package/myos-services` copies all of `rust/`
 and builds in `services/`. Like `myos-bus`, it vendors its crates before the
 build. The C++, Python and Java bindings still cover only `bus/v1`. Phase 4
-adds `sysinfo` for C++, and Phase 5 adds `log` and `net` for Python.
+adds `sysinfo` for C++, and Phase 5 adds `log`, `net` and `sysinfo` for Python.
 
 ## Phase 4: the shell and utilities
 
@@ -381,3 +381,133 @@ BusyBox's links in `/bin` and `/usr/bin`. BusyBox installs with noclobber,
 so rebuilding BusyBox later leaves them in place. If msh ever fails to
 start, `myos.emergency` on the kernel command line still gives you a
 BusyBox shell (see Phase 1).
+
+## Phase 5: the admin tools
+
+Two Python tools in `python/admin` (package `myos.admin`, Buildroot package
+`myos-admin`): **myctl** runs the system, **myos-install** puts it on a disk.
+
+**myctl: services.** It talks to init over its control socket, as
+`initctl` does, and waits for the result:
+
+```sh
+myctl status                  # every service: state, pid, uptime, description
+myctl status netd             # exit status 3 if it isn't running (or done)
+myctl start|stop|restart netd # prints the state it settled in
+myctl disable hello           # sets enabled = false in hello.toml, stops it
+myctl enable hello            # enabled = true, starts it (a oneshot runs again)
+myctl cat netd                # the service file
+myctl reload                  # re-read /etc/myos/services
+myctl poweroff | reboot
+```
+
+**myctl: logs**, from logd over the bus (`log.Query`), in `myos-log`'s format:
+
+```sh
+myctl logs                    # the last 50 entries
+myctl logs netd -n 200        # one service (tag)
+myctl logs -p warning -g eth0 # warnings and worse, containing "eth0"
+myctl logs -f                 # follow; survives logd and busd restarts
+```
+
+**myctl: settings.** Each setting lives in an ordinary file; myctl edits
+that file in place, keeping its comments, and applies the change:
+
+| Key | File | Applied by |
+|---|---|---|
+| `hostname` | `/etc/hostname`, and the `127.0.1.1` line of `/etc/hosts` | setting it now |
+| `net.IFACE.method` | `/etc/myos/netd.toml` | restarting netd |
+| `net.IFACE.address`, `.gateway`, `.dns` | same (static only) | restarting netd |
+| `service.NAME.enabled` | `/etc/myos/services/NAME.toml` | `myctl reload` |
+
+```sh
+myctl config                  # every setting and its value
+myctl get net.eth0.method
+myctl set hostname box
+myctl set net.eth1.method static net.eth1.address 192.168.1.10/24 \
+          net.eth1.gateway 192.168.1.1 net.eth1.dns 1.1.1.1,9.9.9.9
+myctl set net.eth1.method dhcp    # also removes eth1's address, gateway, dns
+myctl unset net.eth1              # netd stops managing eth1
+myctl set --no-apply ...          # write the files only; applied at the next boot
+```
+
+Several `KEY VALUE` pairs are one change: they are checked together, with
+the same rules netd and init apply, and nothing is written if any is wrong
+(so a static interface needs its address in the same command). Services
+and settings need root; anyone can read their own log entries.
+
+**myos-install** copies the running system onto another disk and makes it
+bootable on a BIOS PC (or QEMU's default machine):
+
+```sh
+myos-install --list                     # disks, sizes, what's mounted
+myos-install /dev/vdb                   # asks you to type "yes" first
+myos-install --yes --hostname box /dev/vdb
+myos-install --image-size 2G disk.img   # into an image file (loop device)
+```
+
+1. Writes an MBR: one bootable Linux partition from 1 MiB to the end
+   (`--root-size 2G` for less), GRUB's boot code in the MBR, and GRUB's core
+   image in the gap before the partition. The start and end of the disk are
+   zeroed first, so no old partition table survives.
+2. `mkfs.ext4 -L myos-root` on the partition.
+3. Copies `/` like `cp -ax`: owners, modes, times, links, device nodes and
+   extended attributes, one filesystem only. `/proc`, `/sys`, `/dev`,
+   `/run`, `/tmp` and `/var/log` come over empty; shell history is left out.
+4. Writes `/boot/grub/grub.cfg` with `root=PARTUUID=<disk id>-01`, so the
+   kernel finds its root whatever the disk is called, sets the hostname and
+   records the install in `/etc/myos/installed`. The menu has a second entry
+   that boots to the emergency shell.
+
+It refuses a disk that is mounted or in use as swap (so never the one
+you're running from) and a disk too small for the system, and it won't
+erase anything without `--yes` or a typed "yes" on a terminal. It needs no
+fdisk, losetup or grub-install: the partition table, the loop device and
+GRUB's sectors are written directly. The kernel it installs is
+`/boot/bzImage`, now part of the image (`BR2_LINUX_KERNEL_INSTALL_TARGET`).
+
+**Try it in QEMU:**
+
+```sh
+truncate -s 2G output/disk.img
+make run EXTRA_DISK=$PWD/output/disk.img    # the disk is /dev/vdb inside
+#   myos-install --yes /dev/vdb && poweroff
+make run DISK=$PWD/output/disk.img          # boots it through GRUB, like a PC
+```
+
+`make test` now does the same: after the earlier checks and the myctl ones,
+it installs onto a fresh second disk (`output/images/install-test.img`),
+powers off, boots that disk on its own and checks it came up with its own
+hostname, root by PARTUUID, every service running and fresh logs. That is
+the Phase 5 done-check. The two console logs are `output/boot_test.log` and
+`output/boot_test_installed.log`.
+
+The same disk works in virt-manager: import `disk.img` as an existing disk,
+with no direct kernel boot.
+
+On your machine:
+
+```sh
+make test-admin               # ~1 min, uses sudo; see below
+make rebuild-myos-admin && make test
+```
+
+`make test-admin` checks the settings editor against init's own parser,
+`myctl logs` against busd and logd, `myctl`'s service commands against
+myos-init as PID 1 in namespaces, and the MBR and copy code. Then it runs
+`myos-install` onto a loop-mounted image file and boots that in QEMU through
+GRUB. That last part needs `grub-pc-bin`, `busybox-static`,
+`qemu-system-x86` and a readable kernel (`MYOS_TEST_KERNEL=/path/to/bzImage`,
+default: the newest readable `/boot/vmlinuz-*`), and skips itself without
+them.
+
+**Build notes.** The defconfig turns on GRUB for BIOS
+(`BR2_TARGET_GRUB2_I386_PC`) with the serial console built into the core
+image, so the menu shows on `ttyS0`. GRUB doesn't boot the development image,
+since `make run` still loads the kernel directly. `myos-admin` copies GRUB's
+`boot.img` and the core image to `/usr/lib/myos/boot/` for myos-install to
+write. `myos-admin` also selects e2fsprogs for `mkfs.ext4`. The kernel
+fragment adds MBR and GPT partition support and loop devices.
+`myos-bus-python` now also generates the `log`, `net` and `sysinfo` modules
+(`myos.log.v1.log_pb2` and so on). UEFI isn't supported yet: installed disks
+boot through the BIOS (SeaBIOS, as QEMU and virt-manager use by default).

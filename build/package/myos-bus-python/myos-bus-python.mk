@@ -11,7 +11,7 @@ MYOS_BUS_PYTHON_LICENSE = MIT
 # python-protobuf is the same release as host-protobuf, so the generated
 # code always matches the runtime.
 MYOS_BUS_PYTHON_DEPENDENCIES = python3 python-protobuf host-protobuf
-MYOS_BUS_PYTHON_OVERRIDE_SRCDIR_RSYNC_EXCLUSIONS = --exclude /myos/bus/v1 --exclude __pycache__
+MYOS_BUS_PYTHON_OVERRIDE_SRCDIR_RSYNC_EXCLUSIONS = --exclude /myos/bus/v1 --exclude /myos/log --exclude /myos/net --exclude /myos/sysinfo --exclude __pycache__
 
 MYOS_BUS_PYTHON_MAKE_OPTS = \
 	PROTOC=$(HOST_DIR)/bin/protoc \

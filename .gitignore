@@ -21,3 +21,6 @@ dl/
 /python/bus/myos/bus/v1/
 /cpp/msh/build/
 /cpp/utils/build/
+/python/bus/myos/log/
+/python/bus/myos/net/
+/python/bus/myos/sysinfo/
