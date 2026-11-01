@@ -10,6 +10,10 @@ Phase 1: PID 1 is myos-init; services start, restart, stop and start again;
          orphans are reaped; `poweroff` shuts the machine down cleanly.
 Phase 2: busd runs under init; the Rust, C++ and Python clients (and Java,
          with WITH_JAVA=1) ping it; a killed busd is restarted.
+Phase 3: netd brings eth0 up with DHCP (QEMU's 10.0.2.15) and writes
+         resolv.conf; logd collects service output, syslog, kernel messages
+         and bus writes, in memory and in /var/log/messages, and survives a
+         restart; sysinfod answers over the bus.
 
 Usage: python3 tests/boot_test.py [--timeout SECONDS]
 """
@@ -40,12 +44,11 @@ CHECKS = [
     # Phase 1
     ("readlink /proc/1/exe", "/usr/bin/myos-init"),
     ("initctl status getty", "running"),
-    ("initctl status syslogd", "running"),
-    ("initctl status klogd", "running"),
+    ("initctl status logd", "running"),
     (WAIT_HELLO, "done      exit code 0"),
-    ("kill -9 $(pidof syslogd); sleep 2; initctl status syslogd", "restarts 1"),
-    ("initctl stop syslogd >/dev/null; sleep 1; initctl status syslogd", "stopped"),
-    ("initctl start syslogd >/dev/null; sleep 1; initctl status syslogd", "running"),
+    ("kill -9 $(pidof sysinfod); sleep 2; initctl status sysinfo", "restarts 1"),
+    ("initctl stop sysinfo >/dev/null; sleep 1; initctl status sysinfo", "stopped"),
+    ("initctl start sysinfo >/dev/null; sleep 1; initctl status sysinfo", "running"),
     (ZOMBIES, "zombies=0"),
     # Phase 2
     ("initctl status busd", "running"),
@@ -55,6 +58,29 @@ CHECKS = [
     ("myos-bus-selftest", "clients ok"),
     ("echo listed=$(myos-bus list | grep -c '^bus ')", "listed=1"),
     ("kill $(pidof busd); sleep 2; myos-bus ping back", 'pong: "back"'),
+    # Phase 3: networking (QEMU user networking: DHCP from 10.0.2.2, DNS 10.0.2.3)
+    ("initctl status netd", "running"),
+    ("initctl status network", "done      exit code 0"),
+    ("myos-net status", "10.0.2.15/24"),
+    ("myos-net status | tail -1", "online"),
+    ("grep nameserver /etc/resolv.conf", "nameserver 10.0.2.3"),
+    (r"grep -c '^eth0\s00000000\s0202000A' /proc/net/route", "1"),
+    # Phase 3: logs
+    ("myos-log -t hello", "hello from Rust on x86_64-linux"),
+    ("myos-log -t init -g 'started netd'", "started netd"),
+    ("myos-log -t netd", "eth0: 10.0.2.15/24 from 10.0.2.2"),
+    ("echo kernel=$(myos-log -t kernel -n 1000 | grep -c 'Linux version')", "kernel=1"),
+    ("logger -t phase3 via-syslog; sleep 0.5; myos-log -t phase3", "via-syslog"),
+    ("myos-log write -t phase3 -p warning via-bus >/dev/null; myos-log -t phase3 -p warning", "warning phase3"),
+    # The disk keeps its log across boots, so earlier runs' lines are there too.
+    (r"grep -q 'netd\[[0-9]*\]: eth0: 10.0.2.15/24' /var/log/messages && echo in-file", "in-file"),
+    ("kill $(pidof logd); sleep 2; logger -t phase3 after-restart; sleep 0.5; myos-log -t phase3", "after-restart"),
+    ("echo dupes=$(myos-log -t kernel -n 1000 | grep -c 'Linux version')", "dupes=0"),
+    # Phase 3: system information
+    ("echo services=$(myos-bus list | grep -c -E '^(log|net|sysinfo) ')", "services=3"),
+    ("myos-sysinfo", "memory"),
+    ("myos-sysinfo ps", "/usr/bin/logd"),
+    ("myos-sysinfo disks", "ext4"),
 ]
 
 
@@ -141,6 +167,10 @@ def main():
             # the services, syncs, remounts / read-only and powers the VM off.
             con.send("poweroff")
             text = con.drain(30)
+            try:
+                proc.wait(timeout=10)  # QEMU closes its output a moment before it exits
+            except subprocess.TimeoutExpired:
+                pass
             for label, ok in [
                 ("init stopped services", "[init] powering off: stopping services" in text),
                 ("init synced filesystems", "[init] syncing filesystems" in text),
@@ -162,7 +192,7 @@ def main():
     if failures:
         print(f"Boot test FAILED ({len(failures)} failure(s))")
         return 1
-    print("Phase 1 boot test passed")
+    print("Boot test passed")
     return 0
 
 

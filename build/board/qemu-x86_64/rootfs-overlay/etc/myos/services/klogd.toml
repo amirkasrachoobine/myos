@@ -1,4 +1,0 @@
-description = "Forward kernel messages to syslogd"
-exec = ["/sbin/klogd", "-n"]
-restart = "always"
-after = ["syslogd"]

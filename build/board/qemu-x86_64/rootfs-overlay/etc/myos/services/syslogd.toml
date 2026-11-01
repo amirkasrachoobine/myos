@@ -1,4 +1,0 @@
-# BusyBox syslogd until our own logd arrives in Phase 3.
-description = "System log daemon (writes /var/log/messages)"
-exec = ["/sbin/syslogd", "-n", "-O", "/var/log/messages"]
-restart = "always"

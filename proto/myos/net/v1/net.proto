@@ -1,0 +1,61 @@
+// The network service, provided by netd (rust/services/src/bin/netd).
+//
+// Bus service name: "net". Methods:
+//   ListInterfaces  ListInterfacesRequest -> ListInterfacesReply
+//   Renew           RenewRequest -> RenewReply     (root only)
+//
+// IPv4 only for now.
+syntax = "proto3";
+
+package myos.net.v1;
+
+option java_package = "org.myos.net.v1";
+option java_multiple_files = true;
+
+message Address {
+  string address = 1;     // "10.0.2.15"
+  uint32 prefix_len = 2;  // 24
+}
+
+message Interface {
+  string name = 1;
+  uint32 index = 2;
+  string mac = 3;
+  uint32 mtu = 4;
+  bool up = 5;
+  bool carrier = 6;
+  repeated Address addresses = 7;
+  // "loopback", "dhcp", "static", or "unmanaged" (not in netd.toml).
+  string method = 8;
+  // What netd is doing with it: "configured", "waiting for link",
+  // "discovering", "requesting", "bound", "renewing", "rebinding",
+  // "failed: <why>", or "" when unmanaged.
+  string state = 9;
+  // Set when netd configured it.
+  bool configured = 10;
+  string gateway = 11;
+  repeated string dns = 12;
+  // DHCP only.
+  string dhcp_server = 13;
+  uint32 lease_seconds = 14;
+  uint32 lease_remaining_seconds = 15;
+  uint64 rx_bytes = 16;
+  uint64 tx_bytes = 17;
+}
+
+message ListInterfacesRequest {}
+
+message ListInterfacesReply {
+  repeated Interface interfaces = 1;
+  // Every interface netd manages (other than lo) is configured, and at
+  // least one exists.
+  bool online = 2;
+}
+
+message RenewRequest {
+  // Renew the DHCP lease on this interface now; restart discovery if the
+  // interface has none.
+  string interface = 1;
+}
+
+message RenewReply {}

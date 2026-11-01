@@ -1,0 +1,16 @@
+config BR2_PACKAGE_MYOS_SERVICES
+	bool "myos-services"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_HOST_PROTOBUF_ARCH_SUPPORTS
+	select BR2_PACKAGE_HOST_RUSTC
+	select BR2_PACKAGE_MYOS_BUS # runtime: they serve on the bus
+	help
+	  The myos core services (Phase 3), started by init from
+	  /etc/myos/services/:
+	    logd      log daemon: /dev/log, kernel messages and
+	              every service's output; /var/log/messages
+	    netd      network: lo, DHCP or static addresses from
+	              /etc/myos/netd.toml, resolv.conf
+	    sysinfod  CPU, memory, disk and process information
+	  and their command-line tools myos-log, myos-net and
+	  myos-sysinfo.

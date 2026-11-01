@@ -7,6 +7,8 @@ services, then drives it through initctl and checks what happens.
 
 Needs root (namespaces + mounts) and util-linux's unshare/nsenter.
 Your real root filesystem is not remounted (MYOS_INIT_NO_ROOT_REMOUNT).
+Service output goes to a socket the test listens on (MYOS_INIT_LOG_SOCKET)
+instead of /dev/log, so nothing reaches your machine's own logger.
 
 Usage: sudo python3 tests/init_ns_test.py [path/to/myos-init]
 """
@@ -15,7 +17,9 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import socket
 import tempfile
+import threading
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -51,6 +55,16 @@ SERVICES = {
         exec = ["/bin/sleep", "1000"]
         enabled = false
     """,
+    "talker.toml": """
+        # Phase 3: stdout and stderr go to logd (here: the test's socket)
+        type = "oneshot"
+        exec = ["/bin/sh", "-c", "echo hello from talker; echo '<3>talker failed politely' >&2"]
+    """,
+    "console-talker.toml": """
+        type = "oneshot"
+        output = "console"
+        exec = ["/bin/sh", "-c", "echo straight to the console"]
+    """,
     "broken.toml": """
         exec = "/bin/true"
     """,
@@ -81,13 +95,28 @@ def main():
     console = work / "console.log"
     console.touch()
 
+    # Stands in for logd's /dev/log.
+    log_sock_path = work / "log.sock"
+    log_sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    log_sock.bind(str(log_sock_path))
+    received = []
+
+    def collect():
+        while True:
+            try:
+                received.append(log_sock.recv(65536).decode(errors="replace"))
+            except OSError:
+                return
+
+    threading.Thread(target=collect, daemon=True).start()
+
     # Bind the test files over the real paths, inside the new mount namespace only.
     setup = (
         f"mkdir -p /etc/myos/services && mount --bind {svc_dir} /etc/myos/services && "
         f"{{ [ -e /etc/hostname ] && mount --bind {work}/hostname /etc/hostname || true; }} && "
         f"mount --bind {console} /dev/console && exec {INIT}"
     )
-    env = dict(os.environ, MYOS_INIT_NO_ROOT_REMOUNT="1")
+    env = dict(os.environ, MYOS_INIT_NO_ROOT_REMOUNT="1", MYOS_INIT_LOG_SOCKET=str(log_sock_path))
     proc = subprocess.Popen(
         ["unshare", "--fork", "--pid", "--mount", "--uts", "--propagation", "private", "--mount-proc", "sh", "-c", setup],
         env=env,
@@ -141,6 +170,18 @@ def main():
               wait_for(lambda: "failed    cannot run /nonexistent/program" in status("missing-binary")),
               status("missing-binary"))
         check("disabled service not started", "disabled" in status("off"), status("off"))
+
+        # Phase 3: service output is forwarded as syslog datagrams.
+        got = lambda needle: any(needle in d for d in received)
+        check("service stdout forwarded at info",
+              wait_for(lambda: any(d.startswith("<30>talker[") and d.endswith("]: hello from talker") for d in received)),
+              received[-5:])
+        check("service stderr <3> prefix sets priority err",
+              wait_for(lambda: any(d.startswith("<27>talker[") and d.endswith("]: talker failed politely") for d in received)),
+              received[-5:])
+        check("init's own messages forwarded", wait_for(lambda: got("init[1]: started sleeper")), received[-5:])
+        check("output = \"console\" still goes to the console",
+              wait_for(lambda: "straight to the console" in log()) and not got("straight to the console"), log()[-300:])
         check("crashing service backs off and retries",
               wait_for(lambda: "restarts 2" in status("crasher"), timeout=6), status("crasher"))
 

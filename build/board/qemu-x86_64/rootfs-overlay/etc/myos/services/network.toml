@@ -1,6 +1,8 @@
-# Brings up lo and eth0 (DHCP) from /etc/network/interfaces, as BusyBox init
-# did in Phase 0. Replaced by netd in Phase 3.
-description = "Configure network interfaces"
+# Waits until netd reports the network configured (at most 15 s), so the
+# login prompt and anything else `after = ["network"]` start online.
+# On timeout it fails, which init shows in `initctl status network`, and
+# the services after it start anyway.
+description = "Wait for the network"
 type = "oneshot"
-exec = ["/sbin/ifup", "-a"]
-after = ["syslogd"]
+exec = ["/usr/bin/myos-net", "wait", "--timeout", "15"]
+after = ["netd"]

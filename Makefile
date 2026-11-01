@@ -75,3 +75,12 @@ test-init:
 .PHONY: test-bus
 test-bus:
 	python3 tests/bus_test.py
+
+# Phase 3: run busd, logd and sysinfod on this machine against private
+# sockets, and netd in a network namespace against dnsmasq. No QEMU, ~1 min.
+# The netd part needs root, iproute2 and dnsmasq (apt install dnsmasq-base).
+.PHONY: test-services
+test-services:
+	cd rust/bus && cargo build --release
+	cd rust/services && cargo test --release && cargo build --release
+	sudo python3 tests/services_test.py --no-build

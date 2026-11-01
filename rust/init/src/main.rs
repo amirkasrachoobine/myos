@@ -18,6 +18,7 @@
 
 mod config;
 mod ctl;
+mod logfwd;
 mod mounts;
 mod supervisor;
 mod sys;
@@ -30,8 +31,13 @@ use std::process::{Command, ExitCode};
 pub const SERVICES_DIR: &str = "/etc/myos/services";
 pub const CTL_SOCKET: &str = "/run/myos/init.sock";
 
+/// To the console, and (from Phase 3) to logd tagged `init`.
 macro_rules! log {
-    ($($arg:tt)*) => { eprintln!("[init] {}", format_args!($($arg)*)) };
+    ($($arg:tt)*) => {{
+        let msg = format!($($arg)*);
+        eprintln!("[init] {msg}");
+        $crate::logfwd::own(&msg);
+    }};
 }
 pub(crate) use log;
 
@@ -84,6 +90,7 @@ fn pid1() -> ExitCode {
 fn boot() -> String {
     mounts::mount_api_filesystems();
     mounts::attach_console();
+    logfwd::activate();
     log!("myos-init {} starting", env!("CARGO_PKG_VERSION"));
     mounts::remount_root_rw();
     mounts::set_hostname();

@@ -2,6 +2,8 @@
 name = "myos-init"
 version = "0.1.0"
 edition = "2021"
+# Buildroot 2026.02 builds with Rust 1.88.
+rust-version = "1.88"
 license = "MIT"
 description = "PID 1 for myos: mounts, hostname, service supervision, zombie reaping, shutdown"
 
