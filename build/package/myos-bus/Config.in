@@ -1,0 +1,10 @@
+config BR2_PACKAGE_MYOS_BUS
+	bool "myos-bus"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_HOST_PROTOBUF_ARCH_SUPPORTS
+	select BR2_PACKAGE_HOST_RUSTC
+	help
+	  The myos IPC bus (Phase 2): the busd broker, listening on
+	  /run/myos/bus.sock, and the myos-bus command-line client
+	  (myos-bus ping, myos-bus list). Started by init from
+	  /etc/myos/services/busd.toml.

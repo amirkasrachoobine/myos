@@ -1,0 +1,86 @@
+// The myos IPC bus wire format.
+//
+// Every process talks to the broker (busd) over one Unix stream socket,
+// /run/myos/bus.sock (override with $MYOS_BUS_SOCKET). Each message on the
+// socket is one Frame, preceded by its length as a 4-byte big-endian
+// unsigned integer. Frames larger than 16 MiB are a protocol error and the
+// broker closes the connection.
+//
+// Two roles, both on the same kind of connection:
+//
+//   client:   sends Frame{id, call}            receives Frame{id, reply}
+//   service:  sends Frame{id, register}        receives Frame{id, reply}
+//             then receives Frame{id', call}   sends    Frame{id', reply}
+//
+// Ids are chosen by whoever sends the Call (or Register) and are only
+// meaningful on that one connection; the broker renumbers calls it forwards
+// and maps replies back. Replies may arrive in any order.
+//
+// The broker itself is the service named "bus" (see bus.proto).
+
+syntax = "proto3";
+
+package myos.bus.v1;
+
+option java_package = "org.myos.bus.v1";
+option java_multiple_files = true;
+
+message Frame {
+  uint64 id = 1;
+  oneof kind {
+    Call call = 2;
+    Reply reply = 3;
+    Register register = 4;
+  }
+}
+
+// A request for `service`.`method`. The payload is the method's request
+// message, serialized; its type is defined by the service's own .proto.
+message Call {
+  string service = 1;
+  string method = 2;
+  bytes payload = 3;
+  // Filled in by the broker from the caller's socket credentials
+  // (SO_PEERCRED) before the call is forwarded. Ignored if a client sets it.
+  Caller caller = 4;
+  // How long the broker waits for the service before replying TIMEOUT.
+  // 0 means the broker default (30 s).
+  uint32 timeout_ms = 5;
+}
+
+message Reply {
+  Status status = 1;
+  // The method's reply message, serialized. Empty unless status is OK.
+  bytes payload = 2;
+}
+
+// Claim a service name on this connection. Calls to that name are then
+// forwarded here until the connection closes. A connection may register
+// several names. Only root may register names outside the "app." prefix.
+message Register {
+  string service = 1;
+}
+
+message Status {
+  enum Code {
+    OK = 0;
+    UNKNOWN_SERVICE = 1;     // nobody has registered that name
+    UNKNOWN_METHOD = 2;      // the service doesn't have that method
+    BAD_REQUEST = 3;         // payload didn't decode, or invalid arguments
+    UNAVAILABLE = 4;         // the service went away before replying
+    TIMEOUT = 5;             // the service didn't reply in time
+    INTERNAL = 6;            // the service failed while handling the call
+    PERMISSION_DENIED = 7;
+    ALREADY_REGISTERED = 8;  // another connection owns that name
+  }
+  Code code = 1;
+  string message = 2;  // human-readable detail; empty when OK
+}
+
+// Who made a call, as seen by the kernel. Services use this for access
+// checks, so it is only ever set by the broker.
+message Caller {
+  uint32 uid = 1;
+  uint32 gid = 2;
+  int32 pid = 3;
+}

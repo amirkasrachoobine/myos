@@ -1,0 +1,34 @@
+[package]
+name = "myos-bus"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "myos IPC bus: the busd broker, the Rust client/service library, and the myos-bus CLI"
+
+# Unlike init, this crate uses crates.io. Buildroot builds local cargo
+# packages offline, so build/package/myos-bus/myos-bus.mk vendors the
+# dependencies listed in Cargo.lock before the build. Keep the list short.
+[dependencies]
+prost = "0.14"
+libc = "0.2"
+
+[build-dependencies]
+prost-build = "0.14"
+
+[lib]
+name = "myos_bus"
+path = "src/lib.rs"
+
+[[bin]]
+name = "busd"
+path = "src/bin/busd/main.rs"
+
+[[bin]]
+name = "myos-bus"
+path = "src/bin/myos-bus.rs"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+

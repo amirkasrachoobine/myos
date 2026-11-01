@@ -121,3 +121,71 @@ make rebuild-myos-init && make test
 Add `myos.emergency` to the kernel command line to skip the services and
 get a root shell on the console. If init itself ever fails, it drops to a
 shell rather than letting the kernel panic.
+
+## Phase 2: the IPC bus
+
+Every component talks to every other through one broker, `busd`, on the
+Unix socket `/run/myos/bus.sock`. Messages are protobuf, defined once in
+`proto/` and generated for each language at build time.
+
+```
+proto/myos/bus/v1/wire.proto   the envelope: Frame, Call, Reply, Register, Status
+proto/myos/bus/v1/bus.proto    the broker's own service "bus": Ping, ListServices
+rust/bus/                      busd, the myos-bus CLI, and the Rust library (myos_bus)
+cpp/bus/                       libmyosbus + <myos/bus.hpp>, myos-bus-ping-cpp
+python/bus/                    the myos.bus module, myos-bus-ping-py
+java/bus/                      myos-bus.jar (org.myos.bus.BusClient), myos-bus-ping-java
+```
+
+**How a call works.** A client sends `Call{service, method, payload}`; the
+payload is that method's request message. busd forwards it to whichever
+connection registered `service`, stamps it with the caller's uid/gid/pid
+from the kernel (SO_PEERCRED), and routes the `Reply` back. Errors come back
+as a status code: `UNKNOWN_SERVICE`, `UNKNOWN_METHOD`, `BAD_REQUEST`,
+`TIMEOUT` (30 s by default; clients send their own deadline, default 5 s),
+`UNAVAILABLE` (the service died mid-call), `PERMISSION_DENIED`, and so on.
+Only root may register service names, except names under `app.`, which
+Phase 6 apps will use.
+
+Inside the VM:
+
+```sh
+myos-bus ping                 # Rust; also myos-bus-ping-cpp, -py, -java
+myos-bus list                 # services on the bus
+myos-bus-selftest             # every client in the image pings busd
+```
+
+On your machine:
+
+```sh
+make test-bus                 # build busd + all four clients, ping from each, ~1 min
+cd rust/bus && cargo test     # broker tests: routing, timeouts, crashes, concurrency
+```
+
+`make test-bus` needs `protoc`, the C++ protobuf library, Python's protobuf
+module, `cmake` and `pkg-config`, plus a JDK for the Java part; on
+Debian/Ubuntu: `apt install protobuf-compiler libprotobuf-dev python3-protobuf
+cmake pkg-config openjdk-21-jdk-headless`. It fetches protobuf-java from Maven
+Central into `java/bus/build/`, or skips Java if it can't.
+
+**Writing a service (Phase 3).** Put its messages in `proto/myos/<name>/v1/`,
+then in Rust:
+
+```rust
+use myos_bus::{reply, Service, Status};
+Service::register(&["sysinfo"])?.serve(|req| match req.method {
+    "Memory" => {
+        let _r: MemoryRequest = req.decode()?;      // BAD_REQUEST if it doesn't decode
+        reply(&MemoryReply { total_kb: 0, ..Default::default() })
+    }
+    m => Err(Status::unknown_method(m)),
+})?;
+```
+
+and add `after = ["busd"]` to its service file. Clients then call it with
+`call("sysinfo", "Memory", request)` in any of the four languages.
+
+**Build notes.** Buildroot builds local cargo packages offline, so
+`myos-bus.mk` runs `cargo vendor` before the build (it needs network access
+the first time). protobuf-java is compiled from the protobuf source tree
+Buildroot already downloads for host-protobuf, so it always matches protoc.
