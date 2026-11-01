@@ -1,0 +1,88 @@
+// The log service, provided by logd (rust/services/src/bin/logd).
+//
+// Bus service name: "log". Methods:
+//   Write  WriteRequest -> WriteReply    add an entry
+//   Query  QueryRequest -> QueryReply    read entries back
+//   Stats  StatsRequest -> StatsReply    counters
+//
+// logd collects entries from four places, recorded in Entry.source:
+//   "service"  a service's stdout/stderr, passed on by init
+//   "syslog"   anything that writes to /dev/log (BusyBox logger, udhcpc, ...)
+//   "kernel"   /dev/kmsg
+//   "bus"      log.Write calls, e.g. from Java apps in Phase 6
+//
+// Priorities are syslog levels: 0 emerg, 1 alert, 2 crit, 3 err,
+// 4 warning, 5 notice, 6 info, 7 debug. Lower is more severe.
+syntax = "proto3";
+
+package myos.log.v1;
+
+option java_package = "org.myos.log.v1";
+option java_multiple_files = true;
+
+message Entry {
+  // Increases by one for every entry logd accepts, starting at 1.
+  uint64 seq = 1;
+  // Wall-clock time, microseconds since the Unix epoch.
+  int64 time_us = 2;
+  uint32 priority = 3;
+  // syslog facility number: 0 kern, 1 user, 3 daemon, 4 auth, ...
+  uint32 facility = 4;
+  string source = 5;
+  // The service or program name: "netd", "udhcpc", "kernel".
+  string tag = 6;
+  int32 pid = 7;
+  // The writer's uid where logd can tell (from the kernel), else 0.
+  uint32 uid = 8;
+  string message = 9;
+}
+
+message WriteRequest {
+  string tag = 1;
+  // Default 6 (info).
+  optional uint32 priority = 2;
+  string message = 3;
+}
+
+message WriteReply {
+  uint64 seq = 1;
+}
+
+// Entries come back oldest first.
+//   after_seq = 0: the newest `limit` matching entries (like `tail`).
+//   after_seq = N: the first `limit` matching entries after N, to page
+//                  forward or to follow new entries (poll with last_seq).
+// Callers other than root only see entries written with their own uid.
+message QueryRequest {
+  uint64 after_seq = 1;
+  // 0 means 100. At most 1000.
+  uint32 limit = 2;
+  // Only entries at least this severe (priority <= max_priority).
+  optional uint32 max_priority = 3;
+  // Exact tag match; empty matches every tag.
+  string tag = 4;
+  // Substring of the message; empty matches every message.
+  string contains = 5;
+}
+
+message QueryReply {
+  repeated Entry entries = 1;
+  // The newest seq logd has, matching or not: pass it as after_seq to follow.
+  uint64 last_seq = 2;
+  // The oldest seq still in memory. Older entries are only in the log file.
+  uint64 first_seq = 3;
+}
+
+message StatsRequest {}
+
+message StatsReply {
+  uint64 received = 1;
+  uint64 in_memory = 2;
+  uint64 memory_capacity = 3;
+  uint64 first_seq = 4;
+  uint64 last_seq = 5;
+  string file = 6;
+  uint64 file_bytes = 7;
+  // Messages that couldn't be parsed or were cut to the length limit.
+  uint64 malformed = 8;
+}

@@ -2,8 +2,8 @@
 //! child (ours and orphans), restarts what crashes, answers control requests
 //! and runs the shutdown sequence.
 
-use crate::config::{self, Kind, Restart, Service};
-use crate::{log, mounts, sys, CTL_SOCKET, SERVICES_DIR};
+use crate::config::{self, Kind, Output, Restart, Service};
+use crate::{log, logfwd, mounts, sys, CTL_SOCKET, SERVICES_DIR};
 use std::collections::BTreeMap;
 use std::fs::OpenOptions;
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -129,7 +129,34 @@ fn console(write_only: bool) -> Stdio {
     f.map(Stdio::from).unwrap_or_else(|_| Stdio::null())
 }
 
-fn spawn(svc: &Service) -> io::Result<i32> {
+/// The read end of a service's stdout/stderr pipe. It's kept until EOF,
+/// which comes once the service and everything it started have exited.
+struct OutputPipe {
+    tag: String,
+    pid: i32,
+    reader: io::PipeReader,
+    lines: logfwd::LineBuffer,
+}
+
+impl OutputPipe {
+    /// Reads what's there (the fd is readable). Returns false at EOF.
+    fn read(&mut self) -> bool {
+        let mut buf = [0u8; 4096];
+        let (tag, pid) = (&self.tag, self.pid);
+        match self.reader.read(&mut buf) {
+            Ok(0) | Err(_) => {
+                self.lines.finish(|l| logfwd::line(tag, pid, l));
+                false
+            }
+            Ok(n) => {
+                self.lines.push(&buf[..n], |l| logfwd::line(tag, pid, l));
+                true
+            }
+        }
+    }
+}
+
+fn spawn(svc: &Service) -> io::Result<(i32, Option<io::PipeReader>)> {
     let mut cmd = Command::new(&svc.exec[0]);
     cmd.args(&svc.exec[1..])
         .env_clear()
@@ -138,8 +165,15 @@ fn spawn(svc: &Service) -> io::Result<i32> {
         .env("TERM", std::env::var("TERM").unwrap_or_else(|_| "linux".into()))
         .envs(svc.env.iter().map(|(k, v)| (k, v)))
         .current_dir(&svc.cwd);
+    let mut reader = None;
     if svc.console {
         cmd.stdin(console(false)).stdout(console(true)).stderr(console(true));
+    } else if svc.output == Output::Log && logfwd::enabled() {
+        // Both ends are close-on-exec; Command dup2s the write end onto 1 and 2.
+        let (r, w) = io::pipe()?;
+        let w2 = w.try_clone()?;
+        cmd.stdin(Stdio::null()).stdout(w).stderr(w2);
+        reader = Some(r);
     } else {
         cmd.stdin(Stdio::null()).stdout(console(true)).stderr(console(true));
     }
@@ -148,12 +182,17 @@ fn spawn(svc: &Service) -> io::Result<i32> {
         cmd.pre_exec(sys::child_setup);
     }
     // Dropping the Child doesn't wait for it; we reap every child ourselves.
-    Ok(cmd.spawn()?.id() as i32)
+    let pid = cmd.spawn()?.id() as i32;
+    // Our copies of the write ends live in `cmd`; close them so the pipe
+    // reports EOF once the service's side is closed.
+    drop(cmd);
+    Ok((pid, reader))
 }
 
 pub struct Supervisor {
     units: BTreeMap<String, Unit>,
     shutdown: Option<(Shutdown, Instant)>,
+    outputs: Vec<OutputPipe>,
 }
 
 impl Supervisor {
@@ -161,6 +200,7 @@ impl Supervisor {
         Supervisor {
             units: services.into_iter().map(|s| (s.name.clone(), Unit::new(s))).collect(),
             shutdown: None,
+            outputs: Vec::new(),
         }
     }
 
@@ -194,8 +234,18 @@ impl Supervisor {
             if let Some(l) = &listener {
                 fds.push(l.as_raw_fd());
             }
+            let first_output = fds.len();
+            fds.extend(self.outputs.iter().map(|o| o.reader.as_raw_fd()));
             let ready = sys::poll_readable(&fds, self.next_timeout_ms());
 
+            // Output first: a service's last words before it exits belong
+            // before init's "exited" line.
+            let mut i = 0;
+            self.outputs.retain_mut(|o| {
+                let keep = !ready[first_output + i] || o.read();
+                i += 1;
+                keep
+            });
             if ready[0] {
                 for sig in sys::read_signals(sigfd) {
                     self.on_signal(sig);
@@ -207,6 +257,7 @@ impl Supervisor {
                 }
             }
             self.on_timers(Instant::now());
+            logfwd::flush();
         }
     }
 
@@ -323,8 +374,18 @@ impl Supervisor {
     }
 
     fn start_now(&mut self, name: &str) {
+        let result = match spawn(&self.units[name].svc) {
+            Ok((pid, reader)) => {
+                if let Some(reader) = reader {
+                    let lines = logfwd::LineBuffer::new();
+                    self.outputs.push(OutputPipe { tag: name.to_string(), pid, reader, lines });
+                }
+                Ok(pid)
+            }
+            Err(e) => Err(e),
+        };
         let unit = self.units.get_mut(name).unwrap();
-        match spawn(&unit.svc) {
+        match result {
             Ok(pid) => {
                 log!("started {name} (pid {pid})");
                 unit.state = State::Running { pid, since: Instant::now() };
@@ -382,6 +443,10 @@ impl Supervisor {
     fn next_timeout_ms(&self) -> i32 {
         let now = Instant::now();
         let mut next: Option<Instant> = self.shutdown.map(|(_, d)| d);
+        if logfwd::pending() {
+            // Lines are waiting for logd; try again soon.
+            next = Some(now + Duration::from_millis(100));
+        }
         for u in self.units.values() {
             let t = match u.state {
                 State::Backoff { until } => until,

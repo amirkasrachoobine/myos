@@ -1,0 +1,7 @@
+# The log daemon (Phase 3). Collects /dev/log (BusyBox logger and anything
+# using syslog(3)), kernel messages, and every service's stdout/stderr,
+# which init passes on. Read it with `myos-log`; on disk in /var/log/messages.
+description = "Log daemon"
+exec = ["/usr/bin/logd"]
+restart = "always"
+stop_timeout = 2

@@ -1,0 +1,7 @@
+# System information on the bus (Phase 3): CPU, memory, disks, processes.
+# `myos-sysinfo`; Phase 4's ps and top read from it.
+description = "System information service"
+exec = ["/usr/bin/sysinfod"]
+restart = "always"
+after = ["busd"]
+stop_timeout = 2

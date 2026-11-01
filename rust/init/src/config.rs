@@ -9,6 +9,7 @@
 //! after = ["network"]              # start only once these are up (oneshot: finished)
 //! enabled = true                   # false keeps the file but doesn't start it
 //! console = false                  # true: stdin/stdout/stderr all on /dev/console
+//! output = "log"                   # stdout/stderr: "log" (to logd, the default) or "console"
 //! cwd = "/"
 //! stop_signal = "TERM"             # sent to the service's process group on stop
 //! stop_timeout = 5                 # seconds before SIGKILL
@@ -30,6 +31,14 @@ pub enum Kind {
     Oneshot,
 }
 
+/// Where a service's stdout and stderr go.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Output {
+    /// Through init to logd (see logfwd.rs).
+    Log,
+    Console,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Restart {
     Always,
@@ -47,6 +56,7 @@ pub struct Service {
     pub after: Vec<String>,
     pub enabled: bool,
     pub console: bool,
+    pub output: Output,
     pub cwd: String,
     pub stop_signal: c_int,
     pub stop_timeout: Duration,
@@ -54,7 +64,8 @@ pub struct Service {
 }
 
 const KEYS: &[&str] = &[
-    "description", "exec", "type", "restart", "after", "enabled", "console", "cwd", "stop_signal", "stop_timeout",
+    "description", "exec", "type", "restart", "after", "enabled", "console", "output", "cwd", "stop_signal",
+    "stop_timeout",
 ];
 
 pub fn valid_name(name: &str) -> bool {
@@ -124,6 +135,14 @@ pub fn parse_service(name: &str, text: &str) -> Result<Service, String> {
         Some(v) => return Err(format!("`stop_timeout` must be an integer, got {}", v.type_name())),
     };
 
+    let console = boolean(r, "console")?.unwrap_or(false);
+    let output = match string(r, "output")?.as_deref() {
+        None | Some("log") if console => Output::Console, // an interactive program owns the console
+        None | Some("log") => Output::Log,
+        Some("console") => Output::Console,
+        Some(other) => return Err(format!("`output` must be \"log\" or \"console\", got \"{other}\"")),
+    };
+
     let mut env = Vec::new();
     if let Some(t) = doc.tables.get("env") {
         for (k, v) in t {
@@ -147,7 +166,8 @@ pub fn parse_service(name: &str, text: &str) -> Result<Service, String> {
         restart,
         after,
         enabled: boolean(r, "enabled")?.unwrap_or(true),
-        console: boolean(r, "console")?.unwrap_or(false),
+        console,
+        output,
         cwd: string(r, "cwd")?.unwrap_or_else(|| "/".into()),
         stop_signal,
         stop_timeout: Duration::from_secs(stop_timeout),
@@ -299,6 +319,17 @@ mod tests {
         assert_eq!(s.stop_timeout, Duration::from_secs(5));
         let o = parse_service("y", "exec = [\"/bin/true\"]\ntype = \"oneshot\"").unwrap();
         assert_eq!(o.restart, Restart::Never);
+        assert_eq!(s.output, Output::Log);
+    }
+
+    #[test]
+    fn output() {
+        let p = |extra: &str| parse_service("x", &format!("exec = [\"/bin/true\"]\n{extra}")).map(|s| s.output);
+        assert_eq!(p("output = \"console\""), Ok(Output::Console));
+        assert_eq!(p("output = \"log\""), Ok(Output::Log));
+        // an interactive service keeps the console
+        assert_eq!(p("console = true"), Ok(Output::Console));
+        assert!(p("output = \"file\"").unwrap_err().contains("`output` must be"));
     }
 
     #[test]

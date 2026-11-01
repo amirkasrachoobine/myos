@@ -1,0 +1,6 @@
+# The network daemon (Phase 3): lo, plus DHCP or static addresses for the
+# interfaces in /etc/myos/netd.toml; writes /etc/resolv.conf. `myos-net`.
+description = "Network daemon"
+exec = ["/usr/bin/netd"]
+restart = "always"
+stop_timeout = 2

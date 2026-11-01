@@ -15,6 +15,10 @@ CONFIG_EPOLL=y
 # Phase 2: IPC bus is Unix sockets
 CONFIG_UNIX=y
 
+# Phase 3: logd reads /dev/kmsg; netd uses IPv4 sockets and interface ioctls
+CONFIG_PRINTK=y
+CONFIG_INET=y
+
 # Serial console + virtio devices used by QEMU
 CONFIG_SERIAL_8250=y
 CONFIG_SERIAL_8250_CONSOLE=y

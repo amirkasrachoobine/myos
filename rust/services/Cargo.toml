@@ -1,0 +1,52 @@
+[package]
+name = "myos-services"
+version = "0.1.0"
+edition = "2021"
+# Buildroot 2026.02 builds with Rust 1.88.
+rust-version = "1.88"
+license = "MIT"
+description = "myos core services (Phase 3): logd, netd, sysinfod and their command-line tools"
+
+# Buildroot builds this crate from a copy of the whole rust/ directory
+# (build/package/myos-services, SUBDIR = services), so the path dependency
+# on ../bus and netd's use of ../init/src/toml.rs work there too.
+[dependencies]
+myos-bus = { path = "../bus" }
+prost = "0.14"
+libc = "0.2"
+
+[build-dependencies]
+prost-build = "0.14"
+
+[lib]
+name = "myos_services"
+path = "src/lib.rs"
+
+[[bin]]
+name = "logd"
+path = "src/bin/logd/main.rs"
+
+[[bin]]
+name = "netd"
+path = "src/bin/netd/main.rs"
+
+[[bin]]
+name = "sysinfod"
+path = "src/bin/sysinfod/main.rs"
+
+[[bin]]
+name = "myos-log"
+path = "src/bin/myos-log.rs"
+
+[[bin]]
+name = "myos-net"
+path = "src/bin/myos-net.rs"
+
+[[bin]]
+name = "myos-sysinfo"
+path = "src/bin/myos-sysinfo.rs"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

@@ -1,7 +1,7 @@
 # myos
 
 A headless Linux-based OS with a userland written in Rust, C++, Python and Java.
-This is **Phase 0: toolchain and boot**.
+Phases 0–3 are done: boot, the Rust init, the IPC bus, and the core services.
 
 **Done when:** `make test` boots the image in QEMU, reaches the login prompt, and
 every language smoke test passes.
@@ -189,3 +189,105 @@ and add `after = ["busd"]` to its service file. Clients then call it with
 `myos-bus.mk` runs `cargo vendor` before the build (it needs network access
 the first time). protobuf-java is compiled from the protobuf source tree
 Buildroot already downloads for host-protobuf, so it always matches protoc.
+
+## Phase 3: core services
+
+Three Rust daemons in `rust/services`, each a service on the bus, replace
+BusyBox's `syslogd`, `klogd` and `ifup`/`udhcpc`:
+
+| Service file | Daemon | Bus name | Does |
+|---|---|---|---|
+| `logd.toml` | `logd` | `log` | collects every log; `/var/log/messages` |
+| `netd.toml` | `netd` | `net` | lo, DHCP or static IPv4, `/etc/resolv.conf` |
+| `sysinfo.toml` | `sysinfod` | `sysinfo` | CPU, memory, disks, processes |
+| `network.toml` | `myos-net wait` | | oneshot: waits (≤ 15 s) until netd is online, so getty starts online |
+
+Their interfaces are in `proto/myos/{log,net,sysinfo}/v1/`.
+
+**Logs.** logd collects from four places:
+
+- **Services:** every service's stdout and stderr. Init now gives each
+  service a pipe instead of the console and passes each line on to logd,
+  tagged with the service name. A line may start with a syslog priority,
+  as with systemd: `<3>failed` is logged at err; the default is info. Until
+  logd is listening (early boot, or while it restarts), init holds up to
+  1000 lines and also shows them on the console. To keep a service on the
+  console, add `output = "console"` to its file. `console = true`
+  services, such as getty, are never redirected.
+- **`/dev/log`:** BusyBox `logger` and anything else using syslog(3). The
+  sender's pid and uid come from the kernel.
+- **Kernel messages** from `/dev/kmsg`, from boot onwards. A restarted logd
+  doesn't log them twice.
+- **The bus:** `log.Write`, for the Phase 6 Java apps.
+
+logd keeps the newest 5000 entries in memory for queries and writes all of
+them to `/var/log/messages`, rotating to `messages.1` at 1 MiB. `/var/log`
+is now on disk, not a link to `/tmp`, so logs survive a reboot. Times are
+UTC.
+
+```sh
+myos-log                      # last 50 entries
+myos-log -f                   # follow
+myos-log -t netd -p warning   # one service, warnings and worse
+myos-log -g eth0 -n 200       # containing "eth0"
+myos-log write -t me hello    # add an entry over the bus
+logger -t me hello            # ... or through /dev/log
+myos-log stats
+```
+
+Non-root users only see entries written with their own uid.
+
+**Network.** netd brings up lo as 127.0.0.1/8 and configures the interfaces
+in `/etc/myos/netd.toml`. The default file runs DHCP on eth0:
+
+```toml
+[eth0]
+method = "dhcp"
+
+[eth1]                          # an example static interface
+method = "static"
+address = "192.168.1.10/24"
+gateway = "192.168.1.1"         # optional
+dns = ["192.168.1.1"]           # optional
+```
+
+Without the file, netd runs DHCP on every Ethernet interface. Interfaces that
+appear later are picked up within 2 s. The DHCP client renews at T1, rebinds
+at T2, and drops the address when the lease runs out. If the link goes down
+and comes back, it confirms the lease again. After editing the file, run
+`initctl restart netd`.
+
+```sh
+myos-net                      # interfaces, addresses, gateway, DNS, leases
+myos-net renew eth0           # root only
+myos-net wait --timeout 10
+```
+
+**System information:**
+
+```sh
+myos-sysinfo                  # summary
+myos-sysinfo cpu | mem | disks [-a] | ps
+```
+
+CPU figures come from samples taken once a second. Phase 4's `ps` and `top`
+will call `sysinfo.Processes` directly.
+
+On your machine:
+
+```sh
+make test-services            # busd + logd + sysinfod on private sockets, netd in a
+                              # network namespace with dnsmasq; ~1 min, needs sudo
+cd rust/services && cargo test
+make test-init                # now also checks that service output is forwarded
+make rebuild-myos-services rebuild-myos-init && make test
+```
+
+`make test-services` needs `dnsmasq` and `ip` for the netd part (`apt install
+dnsmasq-base iproute2`). Without them, it skips that part.
+
+**Build notes.** The crate depends on `../bus` and reuses
+`../init/src/toml.rs`, so `build/package/myos-services` copies all of `rust/`
+and builds in `services/`. Like `myos-bus`, it vendors its crates before the
+build. The C++, Python and Java bindings still cover only `bus/v1`. Phase 4
+adds `sysinfo` for C++, and Phase 5 adds `log` and `net` for Python.

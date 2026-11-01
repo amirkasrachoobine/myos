@@ -1,0 +1,109 @@
+// System information, provided by sysinfod (rust/services/src/bin/sysinfod).
+// Phase 4's ps and top read their data from here.
+//
+// Bus service name: "sysinfo". Methods, all open to every caller:
+//   System     SystemRequest -> SystemReply
+//   Cpu        CpuRequest -> CpuReply
+//   Memory     MemoryRequest -> MemoryReply
+//   Disks      DisksRequest -> DisksReply
+//   Processes  ProcessesRequest -> ProcessesReply
+//
+// CPU percentages come from sysinfod's own sampling, once a second, so they
+// describe the last full second. 100% is one CPU fully busy, in both the
+// per-CPU and the per-process figures; usage_percent is averaged over all CPUs.
+syntax = "proto3";
+
+package myos.sysinfo.v1;
+
+option java_package = "org.myos.sysinfo.v1";
+option java_multiple_files = true;
+
+message SystemRequest {}
+
+message SystemReply {
+  string hostname = 1;
+  string os_name = 2;         // from /etc/os-release, e.g. "Buildroot"
+  string kernel_release = 3;  // uname -r
+  string machine = 4;         // uname -m
+  double uptime_seconds = 5;
+  int64 boot_time = 6;        // Unix seconds
+  double load1 = 7;
+  double load5 = 8;
+  double load15 = 9;
+  uint32 cpu_count = 10;
+  uint32 processes = 11;
+  uint32 running = 12;        // runnable threads right now, from /proc/loadavg
+}
+
+message CpuRequest {}
+
+message CpuReply {
+  string model = 1;
+  uint32 count = 2;
+  double usage_percent = 3;
+  repeated double per_cpu_percent = 4;
+  double user_percent = 5;
+  double system_percent = 6;
+  double iowait_percent = 7;
+  double idle_percent = 8;
+  // How long the sample behind these figures was; 0 until the first one.
+  uint32 sample_ms = 9;
+}
+
+message MemoryRequest {}
+
+// Kilobytes (KiB), as in /proc/meminfo.
+message MemoryReply {
+  uint64 total_kb = 1;
+  uint64 free_kb = 2;
+  uint64 available_kb = 3;
+  uint64 used_kb = 4;  // total - available
+  uint64 buffers_kb = 5;
+  uint64 cached_kb = 6;
+  uint64 shared_kb = 7;
+  uint64 swap_total_kb = 8;
+  uint64 swap_free_kb = 9;
+}
+
+message DisksRequest {
+  // Also report pseudo filesystems (proc, sysfs, tmpfs, devtmpfs, ...).
+  bool all = 1;
+}
+
+message Disk {
+  string mount_point = 1;
+  string device = 2;
+  string fs_type = 3;
+  uint64 total_bytes = 4;
+  uint64 used_bytes = 5;
+  uint64 available_bytes = 6;  // to unprivileged users
+  bool read_only = 7;
+}
+
+message DisksReply {
+  repeated Disk disks = 1;
+}
+
+message ProcessesRequest {}
+
+message Process {
+  int32 pid = 1;
+  int32 ppid = 2;
+  uint32 uid = 3;
+  string user = 4;      // from /etc/passwd, else the uid as text
+  string name = 5;      // the kernel's comm, up to 15 characters
+  string state = 6;     // R, S, D, Z, T, I, ...
+  string cmdline = 7;   // arguments joined by spaces; empty for kernel threads
+  uint32 threads = 8;
+  uint64 rss_kb = 9;
+  uint64 vsize_kb = 10;
+  double cpu_percent = 11;
+  double start_seconds = 12;  // since boot
+  uint64 cpu_time_ms = 13;    // user + system
+  int32 nice = 14;
+}
+
+message ProcessesReply {
+  repeated Process processes = 1;
+  uint64 memory_total_kb = 2;
+}

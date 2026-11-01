@@ -1,0 +1,14 @@
+# Interfaces netd configures (Phase 3). One table per interface:
+#
+#   [eth1]
+#   method = "static"             # or "dhcp", or "off" to leave it alone
+#   address = "192.168.1.10/24"
+#   gateway = "192.168.1.1"       # optional
+#   dns = ["192.168.1.1"]         # optional
+#
+# Interfaces not listed are left alone (lo is always 127.0.0.1/8). Without
+# this file, netd runs DHCP on every Ethernet interface.
+# After a change: initctl restart netd
+
+[eth0]
+method = "dhcp"
