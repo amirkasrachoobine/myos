@@ -1,0 +1,6 @@
+# Example oneshot: runs once at boot, after networking is configured.
+# Remove this file (or set enabled = false) once you have real services.
+description = "Phase 0 Rust smoke test, run once at boot"
+type = "oneshot"
+exec = ["/usr/bin/myos-hello-rust"]
+after = ["network"]

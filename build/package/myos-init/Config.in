@@ -1,0 +1,12 @@
+config BR2_PACKAGE_MYOS_INIT
+	bool "myos-init"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	depends on BR2_INIT_NONE
+	select BR2_PACKAGE_HOST_RUSTC
+	help
+	  The myos PID 1, written in Rust (rust/init). Installed as
+	  /usr/bin/myos-init with /sbin/init and /usr/bin/initctl
+	  symlinks. Services are TOML files in /etc/myos/services/.
+
+comment "myos-init needs System configuration -> Init system -> None"
+	depends on !BR2_INIT_NONE

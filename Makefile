@@ -62,3 +62,10 @@ clean:
 
 distclean: clean
 	rm -rf $(BR_DIR)
+
+# Phase 1: run myos-init as PID 1 in namespaces on this machine (no QEMU,
+# no Buildroot build). Needs sudo for the namespaces and mounts.
+.PHONY: test-init
+test-init:
+	cd rust/init && cargo test --release && cargo build --release
+	sudo python3 tests/init_ns_test.py
