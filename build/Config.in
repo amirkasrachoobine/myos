@@ -2,5 +2,6 @@ menu "myos packages"
 
 source "$BR2_EXTERNAL_MYOS_PATH/package/myos-hello-rust/Config.in"
 source "$BR2_EXTERNAL_MYOS_PATH/package/myos-hello-cpp/Config.in"
+source "$BR2_EXTERNAL_MYOS_PATH/package/myos-init/Config.in"
 
 endmenu

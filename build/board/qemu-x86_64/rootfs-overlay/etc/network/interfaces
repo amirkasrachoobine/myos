@@ -1,0 +1,8 @@
+# Used by /etc/myos/services/network.toml (`ifup -a`) until netd in Phase 3.
+# Buildroot only writes this file for its own init systems, so it lives in
+# the overlay now.
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet dhcp

@@ -1,0 +1,24 @@
+[package]
+name = "myos-init"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "PID 1 for myos: mounts, hostname, service supervision, zombie reaping, shutdown"
+
+# No dependencies on purpose. PID 1 is the one process that must never break,
+# and Buildroot builds local cargo packages offline (no vendoring step), so
+# the few libc calls we need are declared by hand in src/sys.rs and the
+# service files use a small TOML subset parsed in src/toml.rs.
+[dependencies]
+
+[[bin]]
+name = "myos-init"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+# Keep unwinding: main() catches a panic and drops to an emergency shell
+# instead of letting PID 1 exit (which would panic the kernel).
+panic = "unwind"

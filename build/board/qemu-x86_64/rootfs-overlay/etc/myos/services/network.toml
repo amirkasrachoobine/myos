@@ -1,0 +1,6 @@
+# Brings up lo and eth0 (DHCP) from /etc/network/interfaces, as BusyBox init
+# did in Phase 0. Replaced by netd in Phase 3.
+description = "Configure network interfaces"
+type = "oneshot"
+exec = ["/sbin/ifup", "-a"]
+after = ["syslogd"]

@@ -70,3 +70,54 @@ Every later phase follows the same pattern as the hello packages:
 
 Phase 1 is the first real one: `rust/init` becomes PID 1, and the defconfig
 switches `BR2_INIT_BUSYBOX` to `BR2_INIT_NONE` with `init=/sbin/myos-init`.
+
+## Phase 1: the Rust init
+
+`rust/init` builds `/usr/bin/myos-init`, which runs as PID 1 (`/sbin/init`
+links to it). At boot it mounts `/proc`, `/sys`, `/dev`, `/dev/pts`,
+`/dev/shm`, `/run` and `/tmp`, remounts `/` read-write, sets the hostname
+from `/etc/hostname`, then starts the services in `/etc/myos/services/`.
+It reaps every zombie, restarts crashed services with backoff (1s, 2s, 4s
+… 30s), and on `poweroff` / `reboot` / `halt` / Ctrl-Alt-Del it stops the
+services, kills stragglers, syncs, remounts `/` read-only and calls the
+kernel.
+
+A service is one TOML file; the service name is the file name:
+
+```toml
+# /etc/myos/services/syslogd.toml
+description = "System log daemon"
+exec = ["/sbin/syslogd", "-n"]   # absolute path; no shell, no PATH lookup
+type = "simple"                  # or "oneshot": runs once at boot
+restart = "always"               # "always" | "on-failure" (default) | "never"
+after = ["network"]              # wait for these to be up (oneshots: finished)
+enabled = true
+console = false                  # true: stdin too, for interactive programs
+stop_signal = "TERM"
+stop_timeout = 5                 # seconds before SIGKILL
+
+[env]
+LANG = "C.UTF-8"
+```
+
+Inside the VM:
+
+```sh
+initctl status                # every service
+initctl status getty
+initctl stop|start|restart syslogd
+initctl reload                # re-read /etc/myos/services (also: kill -HUP 1)
+poweroff                      # BusyBox's poweroff/reboot/halt work as usual
+```
+
+On your machine:
+
+```sh
+myos-init check build/board/qemu-x86_64/rootfs-overlay/etc/myos/services
+make test-init                # init as PID 1 in namespaces, ~15 s, needs sudo
+make rebuild-myos-init && make test
+```
+
+Add `myos.emergency` to the kernel command line to skip the services and
+get a root shell on the console. If init itself ever fails, it drops to a
+shell rather than letting the kernel panic.

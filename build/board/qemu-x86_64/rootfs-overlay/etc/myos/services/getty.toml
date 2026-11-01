@@ -1,0 +1,12 @@
+# Login prompt on the serial console (QEMU's -nographic / console=ttyS0).
+description = "Serial console login"
+exec = ["/sbin/getty", "-L", "115200", "ttyS0", "vt100"]
+restart = "always"
+# Like Phase 0's BusyBox init: the prompt appears once boot-time network
+# setup is done, so DHCP messages don't land in the middle of your session.
+# `ifup` gives up quickly without a lease (udhcpc -b), so this can't hang.
+after = ["network"]
+# getty becomes the login shell, and interactive shells ignore SIGTERM;
+# a hangup is what logs a terminal session out.
+stop_signal = "HUP"
+stop_timeout = 2
