@@ -47,3 +47,8 @@ BR2_PACKAGE_MYOS_HELLO_CPP=y
 # /etc/myos/services/getty.toml in the rootfs overlay.
 BR2_INIT_NONE=y
 BR2_PACKAGE_MYOS_INIT=y
+
+# --- Phase 2: IPC bus ------------------------------------------------------
+BR2_PACKAGE_MYOS_BUS=y
+BR2_PACKAGE_MYOS_BUS_CPP=y
+BR2_PACKAGE_MYOS_BUS_PYTHON=y

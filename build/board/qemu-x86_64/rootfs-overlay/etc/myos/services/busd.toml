@@ -1,0 +1,7 @@
+# The IPC bus broker (Phase 2). Listens on /run/myos/bus.sock.
+# Services that use the bus can list it in `after`; the Rust library's
+# Service::register also waits up to 5 s for the socket to appear.
+description = "IPC bus broker"
+exec = ["/usr/bin/busd"]
+restart = "always"
+stop_timeout = 2

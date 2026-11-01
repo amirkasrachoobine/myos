@@ -15,3 +15,7 @@ output/
 buildroot/
 dl/
 *.log
+/rust/bus/target/
+/cpp/bus/build/
+/java/bus/build/
+/python/bus/myos/bus/v1/

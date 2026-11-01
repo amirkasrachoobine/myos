@@ -1,0 +1,44 @@
+// The broker's own service, "bus". Always present.
+//
+// Calls use the generic envelope in wire.proto; this file defines the
+// payloads. The `service` block documents the methods: the bus doesn't use
+// gRPC, so no stubs are generated from it.
+
+syntax = "proto3";
+
+package myos.bus.v1;
+
+import "myos/bus/v1/wire.proto";
+
+option java_package = "org.myos.bus.v1";
+option java_multiple_files = true;
+
+service Bus {
+  // Round trip through the broker. Echoes `message` back.
+  rpc Ping(PingRequest) returns (PingReply);
+  // Names currently registered on the bus.
+  rpc ListServices(ListServicesRequest) returns (ListServicesReply);
+}
+
+message PingRequest {
+  string message = 1;
+}
+
+message PingReply {
+  string message = 1;         // the request's message, unchanged
+  string broker_version = 2;  // e.g. "busd 0.1.0"
+  uint64 uptime_ms = 3;       // how long the broker has been running
+  Caller caller = 4;          // who the broker thinks you are
+}
+
+message ListServicesRequest {}
+
+message ListServicesReply {
+  repeated ServiceInfo services = 1;
+}
+
+message ServiceInfo {
+  string name = 1;
+  int32 pid = 2;  // pid of the process that registered it (0 for "bus")
+  uint32 uid = 3;
+}

@@ -1,0 +1,10 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: myos-bus
+Description: C++ client for the myos IPC bus
+Version: @PROJECT_VERSION@
+Requires: protobuf
+Libs: -L${libdir} -lmyosbus
+Cflags: -I${includedir}

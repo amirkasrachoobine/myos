@@ -1,0 +1,13 @@
+config BR2_PACKAGE_MYOS_BUS_JAVA
+	bool "myos-bus-java"
+	depends on BR2_PACKAGE_OPENJDK
+	depends on BR2_PACKAGE_HOST_PROTOBUF_ARCH_SUPPORTS
+	help
+	  Java client for the myos IPC bus (package org.myos.bus, in
+	  /usr/share/java/myos-bus.jar) and the myos-bus-ping-java
+	  test client. protobuf-java is compiled from the protobuf
+	  source Buildroot already fetches for host-protobuf, so it
+	  always matches protoc.
+
+comment "myos-bus-java needs OpenJDK (make WITH_JAVA=1)"
+	depends on !BR2_PACKAGE_OPENJDK

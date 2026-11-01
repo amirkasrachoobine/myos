@@ -1,0 +1,32 @@
+#!/bin/sh
+# Phase 2 done-check: every bus client in the image pings busd and gets its
+# message back. Java is only checked when the image has it (make WITH_JAVA=1).
+
+sock=${MYOS_BUS_SOCKET:-/run/myos/bus.sock}
+i=0
+while [ ! -S "$sock" ] && [ $i -lt 50 ]; do sleep 0.2; i=$((i + 1)); done
+
+pass=0
+fail=0
+for entry in "Rust:myos-bus ping" "C++:myos-bus-ping-cpp" "Python:myos-bus-ping-py" "Java:myos-bus-ping-java"; do
+    lang=${entry%%:*}
+    cmd=${entry#*:}
+    if ! command -v "${cmd%% *}" >/dev/null 2>&1; then
+        echo "  $lang: not in this image"
+        continue
+    fi
+    if out=$($cmd 2>&1) && echo "$out" | grep -qF "pong: \"hello from $lang\""; then
+        echo "  $lang: $out"
+        pass=$((pass + 1))
+    else
+        echo "  $lang: FAILED: $out"
+        fail=$((fail + 1))
+    fi
+done
+
+if [ $fail -eq 0 ] && [ $pass -gt 0 ]; then
+    echo "bus selftest: $pass clients ok"
+else
+    echo "bus selftest: $fail of $((pass + fail)) clients FAILED"
+    exit 1
+fi

@@ -69,3 +69,9 @@ distclean: clean
 test-init:
 	cd rust/init && cargo test --release && cargo build --release
 	sudo python3 tests/init_ns_test.py
+
+# Phase 2: build busd and the Rust, C++, Python and Java bus clients on this
+# machine and check each one can ping the broker. No QEMU, about a minute.
+.PHONY: test-bus
+test-bus:
+	python3 tests/bus_test.py

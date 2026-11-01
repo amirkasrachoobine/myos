@@ -8,6 +8,8 @@ Exits non-zero on any failure, so it can run in CI as-is.
 Phase 0: kernel, hostname, one hello program per language, API filesystems.
 Phase 1: PID 1 is myos-init; services start, restart, stop and start again;
          orphans are reaped; `poweroff` shuts the machine down cleanly.
+Phase 2: busd runs under init; the Rust, C++ and Python clients (and Java,
+         with WITH_JAVA=1) ping it; a killed busd is restarted.
 
 Usage: python3 tests/boot_test.py [--timeout SECONDS]
 """
@@ -45,6 +47,14 @@ CHECKS = [
     ("initctl stop syslogd >/dev/null; sleep 1; initctl status syslogd", "stopped"),
     ("initctl start syslogd >/dev/null; sleep 1; initctl status syslogd", "running"),
     (ZOMBIES, "zombies=0"),
+    # Phase 2
+    ("initctl status busd", "running"),
+    ("myos-bus ping", 'pong: "hello from Rust"'),
+    ("myos-bus-ping-cpp", 'pong: "hello from C++"'),
+    ("myos-bus-ping-py", 'pong: "hello from Python"'),
+    ("myos-bus-selftest", "clients ok"),
+    ("echo listed=$(myos-bus list | grep -c '^bus ')", "listed=1"),
+    ("kill $(pidof busd); sleep 2; myos-bus ping back", 'pong: "back"'),
 ]
 
 

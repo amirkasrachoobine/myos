@@ -4,4 +4,8 @@ source "$BR2_EXTERNAL_MYOS_PATH/package/myos-hello-rust/Config.in"
 source "$BR2_EXTERNAL_MYOS_PATH/package/myos-hello-cpp/Config.in"
 source "$BR2_EXTERNAL_MYOS_PATH/package/myos-init/Config.in"
 
+source "$BR2_EXTERNAL_MYOS_PATH/package/myos-bus/Config.in"
+source "$BR2_EXTERNAL_MYOS_PATH/package/myos-bus-cpp/Config.in"
+source "$BR2_EXTERNAL_MYOS_PATH/package/myos-bus-python/Config.in"
+source "$BR2_EXTERNAL_MYOS_PATH/package/myos-bus-java/Config.in"
 endmenu
