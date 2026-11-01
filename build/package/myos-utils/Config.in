@@ -1,0 +1,11 @@
+config BR2_PACKAGE_MYOS_UTILS
+	bool "myos-utils"
+	depends on BR2_PACKAGE_MYOS_BUS_CPP
+	help
+	  ls, cat, ps and top in C++ (Phase 4). They replace BusyBox's
+	  applets of the same names (/bin/ls, /bin/cat, /bin/ps,
+	  /usr/bin/top); `busybox ps` and so on still work. ps and top
+	  read their data from sysinfod over the bus.
+
+comment "myos-utils needs myos-bus-cpp"
+	depends on !BR2_PACKAGE_MYOS_BUS_CPP

@@ -11,7 +11,7 @@ BR2_DOWNLOAD_FORCE_CHECK_HASHES=y
 
 # --- System ---------------------------------------------------------------
 BR2_TARGET_GENERIC_HOSTNAME="myos"
-BR2_TARGET_GENERIC_ISSUE="Welcome to myos (phase 3)"
+BR2_TARGET_GENERIC_ISSUE="Welcome to myos (phase 4)"
 BR2_TARGET_GENERIC_ROOT_PASSWD="myos"
 BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_MYOS_PATH)/board/qemu-x86_64/rootfs-overlay"
 
@@ -56,3 +56,9 @@ BR2_PACKAGE_MYOS_BUS_PYTHON=y
 # --- Phase 3: core services (logd, netd, sysinfod) -------------------------
 # They replace BusyBox syslogd, klogd and ifup/udhcpc in the service files.
 BR2_PACKAGE_MYOS_SERVICES=y
+
+# --- Phase 4: C++ shell and utilities --------------------------------------
+# msh is root's login shell; /bin/sh stays BusyBox ash for scripts. Our ls,
+# cat, ps and top replace BusyBox's (ps and top read sysinfod over the bus).
+BR2_PACKAGE_MYOS_MSH=y
+BR2_PACKAGE_MYOS_UTILS=y

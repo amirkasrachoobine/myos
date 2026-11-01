@@ -84,3 +84,12 @@ test-services:
 	cd rust/bus && cargo build --release
 	cd rust/services && cargo test --release && cargo build --release
 	sudo python3 tests/services_test.py --no-build
+
+# Phase 4: build msh and the utilities on this machine and test them: msh
+# against bash and on a pseudo-terminal (editing, history, completion, job
+# control); ls and cat against GNU coreutils; ps and top against busd and
+# sysinfod on a private socket. No QEMU, no root, under a minute.
+.PHONY: test-shell
+test-shell:
+	python3 tests/msh_test.py
+	python3 tests/utils_test.py

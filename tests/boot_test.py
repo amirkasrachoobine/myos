@@ -14,6 +14,10 @@ Phase 3: netd brings eth0 up with DHCP (QEMU's 10.0.2.15) and writes
          resolv.conf; logd collects service output, syslog, kernel messages
          and bus writes, in memory and in /var/log/messages, and survives a
          restart; sysinfod answers over the bus.
+Phase 4: root logs in to msh, so every check above runs through it; then
+         pipes, redirection, a multi-line loop, Tab completion, history,
+         job control (Ctrl-Z, jobs, bg, kill %1) and Ctrl-C on the serial
+         console, and the C++ ls, cat, ps and top in place of BusyBox's.
 
 Usage: python3 tests/boot_test.py [--timeout SECONDS]
 """
@@ -81,6 +85,36 @@ CHECKS = [
     ("myos-sysinfo", "memory"),
     ("myos-sysinfo ps", "/usr/bin/logd"),
     ("myos-sysinfo disks", "ext4"),
+    # Phase 4: msh is the login shell
+    ("readlink /proc/$$/exe", "/usr/bin/msh"),
+    ("grep '^root:' /etc/passwd", ":/root:/usr/bin/msh"),
+    ("echo $0 $((6 * 7))", "-msh 42"),
+    ("echo phase4 | cat -n > /tmp/p4 && cat /tmp/p4", "     1\tphase4"),
+    ("ls /nonexistent 2>/dev/null || echo status=$?", "status=2"),
+    ("f() { echo \"fn:$1\"; }; f arg", "fn:arg"),
+    ("type cd ll", "ll is aliased to `ls -la'"),
+    # Phase 4: utilities (ours, not BusyBox's)
+    ("for t in ls cat ps top; do $t --version; done | grep -c '(myos)'", "4"),
+    ("ls -l /etc/myos/services/getty.toml", "-rw-r--r--"),
+    ("ls -a /etc/myos", "services"),
+    ("ps -o args= -C logd", "/usr/bin/logd"),
+    ("ps -p 1 -o pid= -o comm=", "1 myos-init"),
+    ("ps aux | head -1", "%CPU %MEM"),
+    ("top -b -n 1 | head -2 | tail -1", "Tasks:"),
+    ("echo services=$(top -b -n 1 | grep -c -E ' (busd|logd|netd|sysinfod)$')", "services=4"),
+]
+
+# Typed with control keys: (what to send, text that must appear before the
+# next prompt). "\x1a" is Ctrl-Z, "\x03" Ctrl-C, "\t" Tab.
+INTERACTIVE = [
+    ("multi-line for loop", ["for i in 1 2; do\necho loop$i\ndone"], "loop2"),
+    ("Tab completes a file name", ["echo completed-ok > /tmp/msh-complete-test", "cat /tmp/msh-compl\t"], "completed-ok"),
+    ("history has the completed line", ["history 3"], "cat /tmp/msh-complete-test"),
+    ("Ctrl-Z stops a job", ["sleep 30", "<1>\x1a"], "Stopped                 sleep 30"),
+    ("jobs lists it", ["jobs"], "[1]+  Stopped                 sleep 30"),
+    ("bg resumes it", ["bg"], "[1]+ sleep 30 &"),
+    ("kill %1 ends it", ["kill %1; sleep 0.5; jobs"], "Terminated              sleep 30"),
+    ("Ctrl-C interrupts", ["sleep 30", "<1>\x03", "echo status=$?"], "status=130"),
 ]
 
 
@@ -125,6 +159,10 @@ class Console:
         self.proc.stdin.write((line + "\n").encode())
         self.proc.stdin.flush()
 
+    def send_raw(self, data):
+        self.proc.stdin.write(data.encode())
+        self.proc.stdin.flush()
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -158,6 +196,26 @@ def main():
                 out = out.split("\n", 1)[1] if "\n" in out else ""
                 ok = want in out
                 label = "wait for hello oneshot" if cmd is WAIT_HELLO else "reap orphans" if cmd is ZOMBIES else cmd
+                print(f"{'PASS' if ok else 'FAIL'}  {label}")
+                if not ok:
+                    failures.append(label)
+                    print(f"      expected {want!r} in:\n      " + out.strip().replace("\n", "\n      "))
+
+            # Phase 4: control keys. A key starting with "<1>" means: wait a
+            # second (the command before it is running), then send the rest
+            # without a newline, as a key press.
+            for label, keys, want in INTERACTIVE:
+                out = ""
+                for i, k in enumerate(keys):
+                    if k.startswith("<1>"):
+                        time.sleep(1)
+                        con.send_raw(k[3:])
+                    else:
+                        con.send(k)
+                    if i + 1 < len(keys) and keys[i + 1].startswith("<1>"):
+                        continue  # still running: the key comes next
+                    out += con.expect(PROMPT, 40)
+                ok = want in out
                 print(f"{'PASS' if ok else 'FAIL'}  {label}")
                 if not ok:
                     failures.append(label)

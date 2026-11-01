@@ -15,7 +15,7 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-set(MYOS_PROTO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../proto" CACHE PATH "Directory holding myos/bus/v1/*.proto")
+set(MYOS_PROTO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../proto" CACHE PATH "Directory holding myos/*/v1/*.proto")
 find_program(PROTOC protoc REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(PROTOBUF REQUIRED IMPORTED_TARGET protobuf)
@@ -24,12 +24,14 @@ set(GEN "${CMAKE_CURRENT_BINARY_DIR}/gen")
 file(MAKE_DIRECTORY "${GEN}")
 set(PB_SRCS)
 set(PB_HDRS)
-foreach(p wire bus)
-  set(src "${MYOS_PROTO_DIR}/myos/bus/v1/${p}.proto")
+# The bus envelope, plus the Phase 3 services' interfaces, so C++ programs
+# can call them (Phase 4's ps and top use sysinfo).
+foreach(p bus/v1/wire bus/v1/bus sysinfo/v1/sysinfo log/v1/log net/v1/net)
+  set(src "${MYOS_PROTO_DIR}/myos/${p}.proto")
   if(NOT EXISTS "${src}")
     message(FATAL_ERROR "${src} not found; set -DMYOS_PROTO_DIR to the repo's proto/ directory")
   endif()
-  set(out "${GEN}/myos/bus/v1/${p}.pb")
+  set(out "${GEN}/myos/${p}.pb")
   add_custom_command(
     OUTPUT "${out}.cc" "${out}.h"
     COMMAND "${PROTOC}" "--cpp_out=${GEN}" "-I${MYOS_PROTO_DIR}" "${src}"
@@ -52,11 +54,11 @@ add_executable(myos-bus-ping-cpp tools/ping.cpp)
 target_link_libraries(myos-bus-ping-cpp PRIVATE myosbus)
 target_compile_options(myos-bus-ping-cpp PRIVATE -Wall -Wextra)
 
-# Installed for the Phase 4 utilities (msh, ps, top) to build against.
+# Installed for the Phase 4 utilities (ps, top) to build against.
 include(GNUInstallDirs)
 install(TARGETS myos-bus-ping-cpp RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(TARGETS myosbus ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-install(FILES ${PB_HDRS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/myos/bus/v1)
+install(DIRECTORY "${GEN}/myos/" DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/myos FILES_MATCHING PATTERN "*.pb.h")
 configure_file(myos-bus.pc.in myos-bus.pc @ONLY)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/myos-bus.pc" DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)

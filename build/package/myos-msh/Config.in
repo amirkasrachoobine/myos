@@ -1,0 +1,23 @@
+config BR2_PACKAGE_MYOS_MSH
+	bool "myos-msh"
+	depends on BR2_INSTALL_LIBSTDCPP
+	depends on BR2_USE_MMU # fork()
+	help
+	  msh, the myos shell (Phase 4): pipes, redirections, job
+	  control, history, Tab completion, if/for/while, functions.
+	  Installs /usr/bin/msh and /etc/mshrc.
+
+if BR2_PACKAGE_MYOS_MSH
+
+config BR2_PACKAGE_MYOS_MSH_LOGIN_SHELL
+	bool "make msh root's login shell"
+	default y
+	help
+	  Sets root's shell in /etc/passwd to /usr/bin/msh and adds it
+	  to /etc/shells. /bin/sh stays BusyBox ash, for scripts.
+
+endif
+
+comment "myos-msh needs a toolchain w/ C++"
+	depends on BR2_USE_MMU
+	depends on !BR2_INSTALL_LIBSTDCPP
