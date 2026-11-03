@@ -8,8 +8,8 @@ Exits non-zero on any failure, so it can run in CI as-is.
 Phase 0: kernel, hostname, one hello program per language, API filesystems.
 Phase 1: PID 1 is myos-init; services start, restart, stop and start again;
          orphans are reaped; `poweroff` shuts the machine down cleanly.
-Phase 2: busd runs under init; the Rust, C++ and Python clients (and Java,
-         with WITH_JAVA=1) ping it; a killed busd is restarted.
+Phase 2: busd runs under init; the Rust, C++, Python and Java clients
+         ping it; a killed busd is restarted.
 Phase 3: netd brings eth0 up with DHCP (QEMU's 10.0.2.15) and writes
          resolv.conf; logd collects service output, syslog, kernel messages
          and bus writes, in memory and in /var/log/messages, and survives a
@@ -22,6 +22,10 @@ Phase 5: myctl manages services, shows logs and changes settings; then
          myos-install installs the system onto a second, empty virtual
          disk, and a second boot from that disk alone (BIOS, GRUB, root by
          PARTUUID) reaches the login prompt with every service running.
+Phase 6: the trimmed JDK; jrun installs the sample app, which runs as the
+         service app.org.myos.hello under its own user, without network,
+         and logs through logd (the done-check); it's still installed and
+         running on the installed disk. Skipped for a WITH_JAVA=0 image.
 
 Usage: python3 tests/boot_test.py [--timeout SECONDS]
 """
@@ -140,6 +144,36 @@ CHECKS = [
     ("ls /boot/bzImage /usr/lib/myos/boot", "core.img"),
 ]
 
+# Phase 6, for images with Java (not WITH_JAVA=0). The JVM starts slowly
+# under QEMU without KVM, hence the waits.
+APP = "app.org.myos.hello"
+WAIT_APP = f"for i in $(seq 60); do myctl status {APP} | grep -q running && break; sleep 1; done; myctl status {APP}"
+WAIT_APP_LOG = (f"for i in $(seq 90); do myos-log -t {APP} | grep -q 'hello from Java' && break; sleep 1; done; "
+                f"myos-log -t {APP}")
+APP_STATUS = ("python3 -c 'from myos.bus import Client; from google.protobuf.wrappers_pb2 import StringValue as S; "
+              f"c = Client(); print(c.call(\"{APP}\", \"Status\", S(), S).value)'")
+JAVA_CHECKS = [
+    ("myos-bus-ping-java", 'pong: "hello from Java"'),
+    ("java --list-modules | grep -c -E '^(java.base|java.logging|jdk.unsupported|java.net.http|jdk.crypto.ec)@'", "5"),
+    ("readlink /usr/bin/java; ls /usr/lib/jvm 2>&1 | grep -c 'No such'", "../lib/myos/jdk/bin/java\n1"),
+    ("jrun check /usr/share/myos/apps/org.myos.hello.mapp", "ok  org.myos.hello 1.0.0"),
+    ("jrun install /usr/share/myos/apps/org.myos.hello.mapp", "installed org.myos.hello 1.0.0"),
+    ("grep org.myos.hello /etc/passwd", "app_hello:x:20000:20000:myos app org.myos.hello:"),
+    (WAIT_APP, "running   pid"),
+    # The done-check: its own log entries (SDK, over the bus) and its stdout (through init) in logd.
+    (WAIT_APP_LOG, "hello from Java: org.myos.hello 1.0.0 started (run 1)"),
+    (f"myos-log -t {APP}", "stdout works too"),
+    (f"myctl logs {APP} | grep -q 'heartbeat 1: load' && echo beat", "beat"),
+    ("ps -o user= -C java", "app_hello"),
+    ("grep -E '^(Uid|NoNewPrivs)' /proc/$(pidof java)/status", "Uid:\t20000\t20000\t20000\t20000\nNoNewPrivs:\t1"),
+    ("readlink /proc/$(pidof java)/ns/net /proc/1/ns/net | uniq | wc -l", "2"),
+    ("cat /etc/myos/bus/policy.d/20000", "call sysinfo"),
+    ("cat /var/lib/myos/apps/org.myos.hello/data/runs", "1"),
+    (APP_STATUS, "heartbeats"),
+    ("jrun list | grep org.myos.hello", "app_hello"),
+    (f"myctl restart {APP}", "running   pid"),
+]
+
 # Phase 5 done-check, part 1: install onto the empty second disk (/dev/vdb).
 INSTALL = ("myos-install --yes --hostname installed /dev/vdb", "done: /dev/vdb boots myos (hostname installed)")
 
@@ -158,6 +192,12 @@ INSTALLED_CHECKS = [
     ("grep -c -e phase3 -e phase5 /var/log/messages", "0"),
     # ([e] so this command, saved to history as it runs, doesn't match itself)
     ("grep -c 'msh-compl[e]te-test' /root/.msh_history", "0"),
+]
+
+# Phase 6 on the installed disk: the app came along and starts at boot.
+INSTALLED_JAVA_CHECKS = [
+    (WAIT_APP, "running   pid"),
+    (WAIT_APP_LOG.replace("hello from Java", "started (run 3)"), "started (run 3)"),
     ("readlink /proc/$$/exe", "/usr/bin/msh"),
 ]
 
@@ -247,6 +287,11 @@ def run_checks(con, checks, failures, timeout=40):
             print(f"      expected {want!r} in:\n      " + out.strip().replace("\n", "\n      "))
 
 
+def image_has_java(con):
+    con.send("test -x /usr/lib/myos/jdk/bin/java && echo java-yes || echo java-no")
+    return "java-yes" in con.expect(PROMPT, 20).split("\n", 1)[-1]
+
+
 def power_off(con, proc, failures, label="poweroff"):
     # Phase 1 done-check: BusyBox poweroff signals our PID 1, which stops
     # the services, syncs, remounts / read-only and powers the VM off.
@@ -308,6 +353,12 @@ def main():
     def first_boot(con, proc, failures):
         print(f"PASS  reached login prompt in {login(con, args.timeout):.1f}s")
         run_checks(con, CHECKS, failures)
+        has_java = image_has_java(con)
+        installed["java"] = has_java
+        if has_java:
+            run_checks(con, JAVA_CHECKS, failures, timeout=120)
+        else:
+            print("SKIP  Phase 6 checks: no Java in this image (WITH_JAVA=0)")
 
         # Phase 4: control keys. A key starting with "<1>" means: wait a
         # second (the command before it is running), then send the rest
@@ -347,6 +398,8 @@ def main():
             print("PASS  installed disk: GRUB menu")
             print(f"PASS  installed disk: reached login prompt in {login(con, args.timeout):.1f}s")
             run_checks(con, INSTALLED_CHECKS, failures)
+            if installed.get("java"):
+                run_checks(con, INSTALLED_JAVA_CHECKS, failures, timeout=120)
             power_off(con, proc, failures, label="installed disk: poweroff")
 
         log2 = out_dir / "boot_test_installed.log"

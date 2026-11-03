@@ -1,6 +1,0 @@
-
-# Appended by `make WITH_JAVA=1`. OpenJDK pulls in alsa, cups, fontconfig etc.
-# and adds roughly an hour to a clean build, so it stays opt-in until Phase 6.
-BR2_PACKAGE_OPENJDK=y
-BR2_PACKAGE_OPENJDK_VERSION_21=y
-BR2_PACKAGE_MYOS_BUS_JAVA=y

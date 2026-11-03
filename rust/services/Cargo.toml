@@ -5,7 +5,7 @@ edition = "2021"
 # Buildroot 2026.02 builds with Rust 1.88.
 rust-version = "1.88"
 license = "MIT"
-description = "myos core services (Phase 3): logd, netd, sysinfod and their command-line tools"
+description = "myos core services (Phase 3): logd, netd, sysinfod and their command-line tools; jrun (Phase 6)"
 
 # Buildroot builds this crate from a copy of the whole rust/ directory
 # (build/package/myos-services, SUBDIR = services), so the path dependency
@@ -45,6 +45,11 @@ path = "src/bin/myos-net.rs"
 [[bin]]
 name = "myos-sysinfo"
 path = "src/bin/myos-sysinfo.rs"
+
+# Phase 6: installs and runs Java apps
+[[bin]]
+name = "jrun"
+path = "src/bin/jrun/main.rs"
 
 [profile.release]
 opt-level = "s"

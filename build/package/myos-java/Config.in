@@ -1,0 +1,45 @@
+config BR2_PACKAGE_MYOS_JAVA
+	bool "myos-java"
+	depends on BR2_PACKAGE_OPENJDK
+	depends on BR2_PACKAGE_HOST_PROTOBUF_ARCH_SUPPORTS # myos-bus-java
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS # jrun, in myos-services
+	select BR2_PACKAGE_OPENJDK_FULL_JDK # its jmods, for jlink
+	select BR2_PACKAGE_MYOS_BUS_JAVA
+	select BR2_PACKAGE_MYOS_SERVICES # jrun
+	help
+	  The Java app runtime (Phase 6):
+	    /usr/lib/myos/jdk            a JDK trimmed with jlink to the
+	                                 modules apps need (~40 MB)
+	    /usr/share/java/myos-sdk.jar the app SDK (org.myos.sdk) and
+	                                 the launcher jrun starts
+	  jrun itself (/usr/bin/jrun) is built with myos-services.
+	  The full OpenJDK is built only for its jmods and is removed
+	  from the target unless you keep it below.
+
+if BR2_PACKAGE_MYOS_JAVA
+
+config BR2_PACKAGE_MYOS_JAVA_MODULES
+	string "JDK modules for apps"
+	default "java.base,java.logging,jdk.unsupported,java.net.http,jdk.crypto.ec"
+	help
+	  The modules jlink puts in /usr/lib/myos/jdk. The SDK needs
+	  java.base, java.logging and jdk.unsupported (protobuf-java)
+	  and java.net.http (Net.http()).
+
+config BR2_PACKAGE_MYOS_JAVA_SAMPLE_APP
+	bool "sample app (org.myos.hello)"
+	default y
+	help
+	  /usr/share/myos/apps/org.myos.hello.mapp. Install it with
+	  jrun install /usr/share/myos/apps/org.myos.hello.mapp
+
+config BR2_PACKAGE_MYOS_JAVA_KEEP_FULL_JDK
+	bool "keep the full JDK in /usr/lib/jvm"
+	help
+	  Normally removed: apps get the trimmed one. Keep it for
+	  javac, jshell, jcmd and the rest on the target (~300 MB).
+
+endif
+
+comment "myos-java needs OpenJDK"
+	depends on !BR2_PACKAGE_OPENJDK

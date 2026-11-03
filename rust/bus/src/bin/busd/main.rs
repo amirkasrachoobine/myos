@@ -6,6 +6,7 @@
 //! protocol is in proto/myos/bus/v1/wire.proto.
 
 mod broker;
+mod policy;
 
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -18,20 +19,30 @@ macro_rules! log {
 pub(crate) use log;
 
 const USAGE: &str = "\
-usage: busd [-v] [--socket PATH]
+usage: busd [-v] [--socket PATH] [--policy-dir DIR]
 
-  --socket PATH   listen here (default $MYOS_BUS_SOCKET, else /run/myos/bus.sock)
+  --socket PATH     listen here (default $MYOS_BUS_SOCKET, else /run/myos/bus.sock)
+  --policy-dir DIR  app policies, one file per app uid (default
+                    $MYOS_BUS_POLICY_DIR, else /etc/myos/bus/policy.d)
   -v              log every connection
   --version";
 
 fn main() -> ExitCode {
     let mut socket: Option<PathBuf> = None;
+    let mut policy_dir: PathBuf = match std::env::var_os("MYOS_BUS_POLICY_DIR") {
+        Some(d) if !d.is_empty() => d.into(),
+        _ => myos_bus::DEFAULT_POLICY_DIR.into(),
+    };
     let mut verbose = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "--socket" => match args.next() {
                 Some(p) => socket = Some(p.into()),
+                None => return usage(),
+            },
+            "--policy-dir" => match args.next() {
+                Some(p) => policy_dir = p.into(),
                 None => return usage(),
             },
             "-v" | "--verbose" => verbose = true,
@@ -73,7 +84,9 @@ fn main() -> ExitCode {
     }
     log!("busd {} listening on {}", env!("CARGO_PKG_VERSION"), path.display());
 
-    let err = broker::Broker::new(verbose).serve(listener);
+    let policies = policy::Policies::new(policy_dir);
+    log!("app policies (uids {}-{}) from {}", policy::APP_UID_MIN, policy::APP_UID_MAX, policies.dir().display());
+    let err = broker::Broker::new(verbose, policies).serve(listener);
     log!("accept failed: {err}");
     ExitCode::FAILURE
 }

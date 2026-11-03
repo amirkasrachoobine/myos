@@ -1,0 +1,6 @@
+# jrun's settings (Phase 6). Every key is optional; these are the defaults.
+#
+# java = "/usr/lib/myos/jdk/bin/java"
+# classpath = ["/usr/share/java/myos-sdk.jar", "/usr/share/java/myos-bus.jar",
+#              "/usr/share/java/protobuf-java.jar"]
+# java_options = []        # added to every app's JVM options, e.g. ["-Xshare:off"]

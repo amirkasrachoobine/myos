@@ -144,6 +144,12 @@ def test_settings(tmp):
     check("service.hello.enabled false, as init reads it", "hello" in rc.stdout and "[disabled]" in rc.stdout.split("hello", 1)[1].split("\n")[0], rc.stdout)
     code, out = myctl("get", "net.eth1.dns", env=env)
     check("get a list", out.strip() == "1.1.1.1,9.9.9.9", out)
+    # Phase 6: app services have dots in their names (app.org.example.notes).
+    (r / "etc/myos/services/app.org.example.notes.toml").write_text('exec = ["/usr/bin/jrun", "run", "org.example.notes"]\n')
+    code, out = myctl("set", "--no-apply", "service.app.org.example.notes.enabled", "false", env=env)
+    code2, out2 = myctl("get", "service.app.org.example.notes.enabled", env=env)
+    check("a service name with dots", code == 0 and code2 == 0 and out2.strip() == "false"
+          and "enabled = false" in (r / "etc/myos/services/app.org.example.notes.toml").read_text(), out + out2)
     code, out = myctl("set", "net.eth2.method", "static", env=env)
     check("static without an address is refused, nothing written",
           code == 1 and "needs net.eth2.address" in out and "eth2" not in (r / "etc/myos/netd.toml").read_text(), out)

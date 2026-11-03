@@ -1,8 +1,8 @@
 # myos
 
 A headless Linux-based OS with a userland written in Rust, C++, Python and Java.
-Phases 0–5 are done: boot, the Rust init, the IPC bus, the core services,
-the C++ shell and utilities, and the Python admin tools.
+Phases 0–6 are done: boot, the Rust init, the IPC bus, the core services,
+the C++ shell and utilities, the Python admin tools, and the Java app runtime.
 
 **Done when:** `make test` boots the image in QEMU, reaches the login prompt, and
 every language smoke test passes.
@@ -19,8 +19,8 @@ make run        # boots to a serial login prompt — root / myos — exit with C
 make test       # automated boot test
 ```
 
-Add `WITH_JAVA=1` to `make` to build OpenJDK 21 into the image as well (adds
-about an hour). It isn't needed until Phase 6, so it's off by default.
+The image includes OpenJDK 21 for the Phase 6 app runtime, which adds about an
+hour to a clean build. `make WITH_JAVA=0` leaves Java out.
 
 ## What's in the image
 
@@ -32,7 +32,7 @@ about an hour). It isn't needed until Phase 6, so it's off by default.
 | Rust | `rust/hello` → `/usr/bin/myos-hello-rust` | built with Buildroot's `cargo-package` |
 | C++ | `cpp/hello` → `/usr/bin/myos-hello-cpp` | built with the target `g++` |
 | Python | Python 3 + `/usr/bin/myos-hello-py` | |
-| Java | OpenJDK 21 | opt-in, `WITH_JAVA=1` |
+| Java | OpenJDK 21, trimmed with jlink | Phase 6; `WITH_JAVA=0` leaves it out |
 | QEMU | built on the host by Buildroot | so you don't depend on the distro's version |
 
 ## Layout
@@ -41,13 +41,13 @@ about an hour). It isn't needed until Phase 6, so it's off by default.
 myos/
 ├── Makefile                 # driver: fetches Buildroot 2026.02.x (LTS) and builds
 ├── build/                   # Buildroot external tree (BR2_EXTERNAL=build)
-│   ├── configs/             # myos_qemu_x86_64_defconfig, java.fragment
+│   ├── configs/             # myos_qemu_x86_64_defconfig, no-java.fragment
 │   ├── board/qemu-x86_64/   # kernel fragment, rootfs overlay
 │   └── package/             # our Buildroot packages, one per component
 ├── rust/                    # Rust crates (init, daemons from Phase 1)
 ├── cpp/                     # C++: bus client (Phase 2), msh + ls/cat/ps/top (Phase 4)
 ├── python/                  # bus client (Phase 2), myctl + myos-install (Phase 5)
-├── java/                    # app runtime + SDK (Phase 6)
+├── java/                    # bus client (Phase 2); SDK, jlink'd JDK, sample app (Phase 6)
 ├── proto/                   # shared IPC definitions (Phase 2)
 ├── scripts/run-qemu.sh
 └── tests/boot_test.py
@@ -511,3 +511,161 @@ fragment adds MBR and GPT partition support and loop devices.
 `myos-bus-python` now also generates the `log`, `net` and `sysinfo` modules
 (`myos.log.v1.log_pb2` and so on). UEFI isn't supported yet: installed disks
 boot through the BIOS (SeaBIOS, as QEMU and virt-manager use by default).
+
+## Phase 6: the Java app runtime
+
+Java apps are packages you install with **jrun**. Each app runs as a service
+under its own user, in a sandbox that gives it only what its manifest asks
+for. A small SDK gives it the bus: logs, system information, the network
+and its own files.
+
+```
+java/jdk/          the runtime: OpenJDK 21 trimmed with jlink, /usr/lib/myos/jdk (~40 MB)
+java/sdk/          myos-sdk.jar: the SDK (org.myos.sdk) and the launcher (org.myos.runtime.Main)
+java/bus/          myos-bus.jar, now with the log, net and sysinfo messages too
+java/apps/hello/   the sample app, /usr/share/myos/apps/org.myos.hello.mapp
+rust/services/src/bin/jrun/   jrun: install, run, remove (Rust; it needs root)
+```
+
+**Try it:**
+
+```sh
+jrun install /usr/share/myos/apps/org.myos.hello.mapp
+myctl status app.org.myos.hello     # a service like any other
+myctl logs app.org.myos.hello       # its log entries and its stdout
+jrun list
+jrun info org.myos.hello            # manifest, user, permissions, state
+jrun remove org.myos.hello          # also --keep-data
+```
+
+**A package** (`.mapp`) is an uncompressed tar archive with `app.toml` at the
+top and the app's jars:
+
+```toml
+id = "org.myos.hello"            # reverse-DNS; the service is app.<id>
+name = "Hello"
+version = "1.0.0"
+main = "org.myos.hello.Hello"    # implements org.myos.sdk.App, or has main(String[])
+classpath = ["hello.jar"]        # default ["app.jar"]
+args = ["--interval", "30"]
+permissions = ["log", "sysinfo"]
+memory = 32                      # MiB of heap (-Xmx), 16–2048, default 64
+service = true                   # false: run it by hand with `jrun run ID`
+restart = "on-failure"
+```
+
+`jrun pack DIR -o app.mapp` makes one from a directory, and `jrun check`
+validates a package. `jrun install` refuses anything it can't extract
+safely: links, absolute paths, `..`, duplicates, and compressed archives.
+
+**Permissions.** The system enforces them, not just the SDK:
+
+| Permission | Allows | Enforced by |
+|---|---|---|
+| `log` | `log.Write` and reading its own entries | busd |
+| `sysinfo` | the `sysinfo` service | busd |
+| `netinfo` | the `net` service (interface status) | busd |
+| `network` | connections; without it the app has a network namespace with only `lo` | the kernel |
+| `call:SERVICE` | another bus service, e.g. `call:app.org.example.notes` or `call:app.org.example.*` | busd |
+
+Every app may also call `bus` and serve its own name, `app.<id>` (and names
+under it). Nothing else.
+
+**What install does:**
+
+- **A user:** `app_hello`, with a uid from 20000–29999.
+- **Data:** `/var/lib/myos/apps/<id>/data`, owned by the app's user, mode 0700. The package goes next to it in `pkg/`, owned by root.
+- **Bus policy:** `/etc/myos/bus/policy.d/<uid>`, listing the services the app may call.
+- **Service file:** `/etc/myos/services/app.<id>.toml`. Then init reloads and starts the app.
+
+An upgrade keeps the app's uid and data, keeps `enabled` as it was, and
+restarts the app if it was running. `--no-start` installs the app disabled
+(`myctl enable app.<id>` to start it).
+
+**The sandbox.** `jrun run ID` is what the service runs. As root, it sets up
+the following, then starts the JVM:
+
+- **Namespaces:** a private mount namespace with fresh tmpfs on `/tmp`,
+  `/var/tmp` and `/dev/shm`. Without `network`, also a network namespace
+  with only `lo`, brought up.
+- **Limits:** 4096 open files, 1024 processes, no core dumps.
+- **Privileges:** it switches to the app's uid and gid with no supplementary
+  groups, checks that root can't be regained, and sets `no_new_privs`.
+- **Environment:** the app starts in its data directory with a clean
+  environment.
+
+busd enforces the bus side: a connection whose uid is in the app range may
+call only what its policy file lists. If the file is missing, or not owned by
+root, the app gets nothing but `bus.Ping`. `jrun remove` stops the app, kills
+anything left running as its uid, and deletes its files, policy and user.
+
+**Writing an app**, against the SDK:
+
+```java
+public final class Notes implements org.myos.sdk.App {
+    public void run(AppContext app) throws Exception {
+        app.log().info("started, run %s", app.files().read("runs").orElse("0"));
+        app.serve(req -> ...);                          // answer calls to app.<id> on the bus
+        while (app.sleep(Duration.ofSeconds(10))) {     // false once the service is stopped
+            MemoryReply m = app.sysinfo().memory();     // needs "sysinfo"
+            app.files().write("last", m.getUsedKb() + "\n");
+        }
+    }
+}
+```
+
+| SDK | Gives |
+|---|---|
+| `app.log()` | `info`/`notice`/`warning`/`error`/`debug`, tagged `app.<id>`; falls back to stderr if logd is down |
+| `app.files()` | its data directory: `read`, `write` (atomic), `append`, `list`, `delete`; paths can't leave it |
+| `app.sysinfo()` | `system()`, `cpu()`, `memory()`, `disks()`, `processes()` |
+| `app.net()` | `connect()`, `http()` (java.net.http), `interfaces()` (needs `netinfo`) |
+| `app.serve(handler)` | serves `app.<id>`; registers again if busd restarts |
+| `app.connect()` | a raw `BusClient`, for other apps' services |
+| `app.args()`, `id()`, `version()`, `permissions()`, `stopping()`, `onStop()` | |
+
+The SDK throws `PermissionException` before trying something the manifest
+doesn't allow, so the error says which permission is missing. Stdout and
+stderr go to logd through init, like any service's output. On
+`myctl stop`, the JVM gets SIGTERM: `stopping()` turns true, `sleep()`
+returns false, and the app has 5 seconds to return from `run()`. The sample
+app in `java/apps/hello` uses all of this. Build an app on your machine
+like the sample's Makefile does: `javac` against `myos-sdk.jar`,
+`myos-bus.jar` and protobuf-java.
+
+On your machine:
+
+```sh
+make test-java                # ~1 min, uses sudo; see below
+make rebuild-myos-java rebuild-myos-services && make test
+```
+
+`make test-java` builds the jars, the sample app and a jlink'd JDK, and
+checks jrun's package handling. Then it runs myos-init as PID 1 in
+namespaces with busd, logd and sysinfod, and installs the sample app with
+jrun. That covers the Phase 6 done-check: the app runs as a service, under
+its own uid, and its entries reach logd. A probe app (`tests/java/probe`)
+then tries what it may not do: other services, other apps' names and files,
+the network, `/etc`, its own package. The check passes only if the system
+refuses all of it. Then the test upgrades, stops, disables and removes the
+apps. It needs a JDK 21 with jmods, `protoc`, cargo, GNU tar and
+protobuf-java (`PROTOBUF_JAR=...`, `make -C java/bus fetch-protobuf`, or
+Debian's `libprotobuf-java`). Your `/etc/passwd` and `/etc/myos` are not
+touched: the test binds copies over them inside the namespace.
+
+`make test` now also installs the sample app in the VM, checks its user,
+uid, namespace and log entries, and checks that it still runs on the
+installed disk.
+
+**Build notes.** The defconfig now builds OpenJDK 21 as a full JDK (for its
+jmods). `myos-java` runs the host JDK's jlink on those jmods, which needs the
+same feature release (both are 21.0.4). It then removes the full JDK from the
+target in a finalize hook and points `/usr/bin/java` at the trimmed one.
+`BR2_PACKAGE_MYOS_JAVA_KEEP_FULL_JDK` keeps the full JDK, and
+`BR2_PACKAGE_MYOS_JAVA_MODULES` picks the modules. The libraries OpenJDK
+pulls in (alsa, cups, fontconfig) stay in the image. The kernel fragment adds
+`CONFIG_NAMESPACES` and `CONFIG_NET_NS`: without network namespaces, jrun
+refuses to start apps that lack `network`. log.proto's `StatsReply.file_bytes`
+is now `file_size`: protobuf-java generates `getFileBytes()` for the `file`
+field too. The field number is the same, so the wire format doesn't change.
+myctl's `service.NAME.enabled` now accepts names with dots.

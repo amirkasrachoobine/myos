@@ -1,6 +1,6 @@
 #!/bin/sh
 # Phase 2 done-check: every bus client in the image pings busd and gets its
-# message back. Java is only checked when the image has it (make WITH_JAVA=1).
+# message back. Java is only checked when the image has it (not with make WITH_JAVA=0).
 
 sock=${MYOS_BUS_SOCKET:-/run/myos/bus.sock}
 i=0

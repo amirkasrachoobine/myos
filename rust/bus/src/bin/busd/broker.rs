@@ -20,6 +20,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::log;
+use crate::policy::{is_app_uid, Policies};
 
 const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -76,16 +77,31 @@ pub struct Broker {
     started: Instant,
     next_conn: AtomicU64,
     verbose: bool,
+    policies: Policies,
 }
 
 impl Broker {
-    pub fn new(verbose: bool) -> Arc<Broker> {
+    pub fn new(verbose: bool, policies: Policies) -> Arc<Broker> {
         Arc::new(Broker {
             state: Mutex::new(State::default()),
             started: Instant::now(),
             next_conn: AtomicU64::new(1),
             verbose,
+            policies,
         })
+    }
+
+    /// Phase 6: may this connection call `service`? Err is the reason.
+    fn check_call(&self, conn: &Conn, service: &str) -> Result<(), String> {
+        if !is_app_uid(conn.cred.uid) || service == BUS_SERVICE {
+            return Ok(());
+        }
+        let p = self.policies.get(conn.cred.uid)?;
+        if p.may_call(service) {
+            Ok(())
+        } else {
+            Err(format!("app {} (uid {}) may not call {service:?}: its manifest doesn't ask for it", p.app, conn.cred.uid))
+        }
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
@@ -165,6 +181,12 @@ impl Broker {
     }
 
     fn on_call(&self, conn: &Arc<Conn>, id: u64, mut call: Call) {
+        if let Err(why) = self.check_call(conn, &call.service) {
+            if self.verbose {
+                log!("denied: {why}");
+            }
+            return conn.fail(id, Code::PermissionDenied, why);
+        }
         if call.service == BUS_SERVICE {
             match self.builtin(conn, &call) {
                 Ok(payload) => conn.reply(id, Status::ok(), payload),
@@ -230,6 +252,19 @@ impl Broker {
         }
         if conn.cred.uid != 0 && !name.starts_with("app.") {
             return conn.fail(id, Code::PermissionDenied, "only root may register names outside \"app.\"");
+        }
+        if is_app_uid(conn.cred.uid) {
+            match self.policies.get(conn.cred.uid) {
+                Ok(p) if p.may_register(&name) => {}
+                Ok(p) => {
+                    return conn.fail(
+                        id,
+                        Code::PermissionDenied,
+                        format!("app {} may only register app.{} and names under it", p.app, p.app),
+                    )
+                }
+                Err(why) => return conn.fail(id, Code::PermissionDenied, why),
+            }
         }
         {
             let mut st = self.state();

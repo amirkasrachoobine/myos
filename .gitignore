@@ -24,3 +24,7 @@ dl/
 /python/bus/myos/log/
 /python/bus/myos/net/
 /python/bus/myos/sysinfo/
+/java/build/
+/java/sdk/build/
+/java/jdk/build/
+/java/apps/*/build/

@@ -71,7 +71,7 @@ impl Store {
             first_seq: self.ring.front().map_or(self.next_seq, |e| e.seq),
             last_seq: self.next_seq - 1,
             file: self.file.as_ref().map(|f| f.path.display().to_string()).unwrap_or_default(),
-            file_bytes: self.file.as_ref().map_or(0, |f| f.size),
+            file_size: self.file.as_ref().map_or(0, |f| f.size),
             malformed: self.malformed,
         }
     }

@@ -13,4 +13,5 @@ config BR2_PACKAGE_MYOS_SERVICES
 	              /etc/myos/netd.toml, resolv.conf
 	    sysinfod  CPU, memory, disk and process information
 	  and their command-line tools myos-log, myos-net and
-	  myos-sysinfo.
+	  myos-sysinfo. Also jrun, which installs and runs the
+	  Phase 6 Java apps (see myos-java).

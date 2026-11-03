@@ -36,3 +36,9 @@ CONFIG_PARTITION_ADVANCED=y
 CONFIG_MSDOS_PARTITION=y
 CONFIG_EFI_PARTITION=y
 CONFIG_BLK_DEV_LOOP=y
+
+# Phase 6: jrun gives every app a private mount namespace, and apps without
+# the "network" permission a network namespace with only loopback. Without
+# NET_NS jrun refuses to start those apps rather than give them the network.
+CONFIG_NAMESPACES=y
+CONFIG_NET_NS=y

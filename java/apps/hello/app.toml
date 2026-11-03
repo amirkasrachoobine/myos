@@ -1,0 +1,15 @@
+# The sample app (Phase 6). Install it with
+#   jrun install /usr/share/myos/apps/org.myos.hello.mapp
+# then: myctl status app.org.myos.hello, myctl logs app.org.myos.hello
+id = "org.myos.hello"
+name = "Hello"
+version = "1.0.0"
+description = "Sample Java app: logs a system heartbeat and serves its status on the bus"
+main = "org.myos.hello.Hello"
+classpath = ["hello.jar"]
+args = ["--interval", "30"]
+# No "network": it runs with only a loopback interface of its own.
+permissions = ["log", "sysinfo"]
+memory = 32
+service = true
+restart = "on-failure"

@@ -1,0 +1,6 @@
+# Appended by `make WITH_JAVA=0`: an image without OpenJDK and the Phase 6
+# app runtime, which saves about an hour on a clean build. jrun is still
+# installed (it's part of myos-services) but has no JVM to run apps with.
+# BR2_PACKAGE_OPENJDK is not set
+# BR2_PACKAGE_MYOS_BUS_JAVA is not set
+# BR2_PACKAGE_MYOS_JAVA is not set

@@ -155,7 +155,7 @@ fn stats() -> Result<(), String> {
     if s.file.is_empty() {
         println!("file       none");
     } else {
-        println!("file       {} ({})", s.file, human_bytes(s.file_bytes));
+        println!("file       {} ({})", s.file, human_bytes(s.file_size));
     }
     println!("malformed  {}", s.malformed);
     Ok(())
