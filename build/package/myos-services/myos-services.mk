@@ -41,5 +41,5 @@ endef
 MYOS_SERVICES_TARGET_FINALIZE_HOOKS += MYOS_SERVICES_PERSISTENT_VAR_LOG
 
 # cargo-package installs every [[bin]] to /usr/bin: logd, netd, sysinfod,
-# myos-log, myos-net, myos-sysinfo.
+# myos-log, myos-net, myos-sysinfo, and jrun (Phase 6).
 $(eval $(cargo-package))

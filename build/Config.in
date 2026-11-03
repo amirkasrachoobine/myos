@@ -15,4 +15,6 @@ source "$BR2_EXTERNAL_MYOS_PATH/package/myos-msh/Config.in"
 source "$BR2_EXTERNAL_MYOS_PATH/package/myos-utils/Config.in"
 
 source "$BR2_EXTERNAL_MYOS_PATH/package/myos-admin/Config.in"
+
+source "$BR2_EXTERNAL_MYOS_PATH/package/myos-java/Config.in"
 endmenu

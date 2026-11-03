@@ -7,7 +7,8 @@
 #   make menuconfig / linux-menuconfig / savedefconfig
 #
 # Options:
-#   WITH_JAVA=1     also build OpenJDK into the image (slow; needed from Phase 6)
+#   WITH_JAVA=0     leave out OpenJDK and the Phase 6 Java app runtime (saves
+#                   about an hour on a clean build)
 #   O=<dir>         build output directory (default: ./output)
 
 BR_VERSION   ?= 2026.02.x
@@ -16,7 +17,7 @@ BR_DIR       ?= $(CURDIR)/buildroot
 O            ?= $(CURDIR)/output
 EXTERNAL     := $(CURDIR)/build
 DEFCONFIG    := myos_qemu_x86_64_defconfig
-JAVA_FRAG    := $(EXTERNAL)/configs/java.fragment
+NO_JAVA_FRAG := $(EXTERNAL)/configs/no-java.fragment
 
 BR_MAKE = $(MAKE) -C $(BR_DIR) O=$(O) BR2_EXTERNAL=$(EXTERNAL)
 
@@ -32,8 +33,8 @@ buildroot: $(BR_DIR)/Makefile
 
 $(O)/.config: $(EXTERNAL)/configs/$(DEFCONFIG) | buildroot
 	$(BR_MAKE) $(DEFCONFIG)
-ifeq ($(WITH_JAVA),1)
-	cat $(JAVA_FRAG) >> $(O)/.config
+ifeq ($(WITH_JAVA),0)
+	cat $(NO_JAVA_FRAG) >> $(O)/.config
 	$(BR_MAKE) olddefconfig
 endif
 
@@ -108,3 +109,15 @@ test-admin:
 	cd rust/bus && cargo build --release
 	cd rust/services && cargo build --release
 	sudo env MYOS_TEST_KERNEL="$(MYOS_TEST_KERNEL)" python3 tests/admin_test.py --no-build
+
+# Phase 6: the Java app runtime on this machine. Builds the bus jar, the SDK,
+# the sample app and a jlink'd JDK, checks jrun's package handling, then runs
+# myos-init as PID 1 in namespaces with busd, logd and sysinfod, installs the
+# sample app and a probe app with jrun, and checks that they run as services
+# under their own uids, log through logd and get only what their manifests
+# ask for. Needs a JDK 21 with jmods, protoc, cargo, GNU tar and protobuf-java
+# (PROTOBUF_JAR=..., `make -C java/bus fetch-protobuf`, or Debian's
+# libprotobuf-java). Uses sudo. About a minute.
+.PHONY: test-java
+test-java:
+	sudo env PROTOBUF_JAR="$(PROTOBUF_JAR)" python3 tests/java_test.py

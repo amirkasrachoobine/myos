@@ -82,7 +82,9 @@ message StatsReply {
   uint64 first_seq = 4;
   uint64 last_seq = 5;
   string file = 6;
-  uint64 file_bytes = 7;
+  // Size of `file` in bytes. (Not "file_bytes": protobuf-java would generate
+  // getFileBytes() for both fields.)
+  uint64 file_size = 7;
   // Messages that couldn't be parsed or were cut to the length limit.
   uint64 malformed = 8;
 }

@@ -80,10 +80,12 @@ def _split_key(key):
         if not _IFACE.match(parts[1]):
             raise SettingError(f"`{parts[1]}` is not an interface name")
         return ("net", parts[1], None)
-    if len(parts) == 3 and parts[0] == "service" and parts[2] == "enabled":
-        if not _SERVICE.match(parts[1]):
-            raise SettingError(f"`{parts[1]}` is not a service name")
-        return ("service", parts[1], "enabled")
+    if len(parts) >= 3 and parts[0] == "service" and parts[-1] == "enabled":
+        # Service names may contain dots themselves (Phase 6 apps: app.org.example.notes).
+        name = ".".join(parts[1:-1])
+        if not _SERVICE.match(name):
+            raise SettingError(f"`{name}` is not a service name")
+        return ("service", name, "enabled")
     raise SettingError(f"unknown setting `{key}`; try `myctl config` for the list")
 
 

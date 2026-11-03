@@ -1,0 +1,11 @@
+# Test app for tests/java_test.py (see Probe.java). Not a service: the test
+# runs it with `jrun run org.myos.probe`.
+id = "org.myos.probe"
+name = "Probe"
+version = "0.1"
+main = "org.myos.probe.Probe"
+classpath = ["probe.jar"]
+args = ["from-manifest"]
+permissions = ["log", "call:app.org.myos.hello"]
+memory = 32
+service = false

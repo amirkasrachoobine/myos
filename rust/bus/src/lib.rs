@@ -47,6 +47,15 @@ pub const DEFAULT_SOCKET: &str = "/run/myos/bus.sock";
 /// The broker's own service name.
 pub const BUS_SERVICE: &str = "bus";
 
+/// Phase 6: every Java app runs under its own uid in this range (jrun
+/// allocates them). busd limits what these uids may do on the bus to what
+/// the app's policy file allows; see busd's policy.rs.
+pub const APP_UID_MIN: u32 = 20000;
+pub const APP_UID_MAX: u32 = 29999;
+
+/// Where busd finds app policies: one file per app uid, named by the uid.
+pub const DEFAULT_POLICY_DIR: &str = "/etc/myos/bus/policy.d";
+
 /// The socket path clients should use: $MYOS_BUS_SOCKET, or the default.
 pub fn socket_path() -> PathBuf {
     match std::env::var_os("MYOS_BUS_SOCKET") {

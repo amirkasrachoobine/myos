@@ -1,4 +1,5 @@
-# Builds myos-bus.jar (generated protobuf classes + the client) with plain
+# Builds myos-bus.jar (generated protobuf classes for the bus, log, net and
+# sysinfo, the client, and BusService for serving a name) with plain
 # javac, no Maven/Gradle. Needs protobuf-java at a version matching protoc:
 #   make -C java/bus fetch-protobuf     # downloads it from Maven Central
 #   make -C java/bus
@@ -16,7 +17,10 @@ BINDIR ?= /usr/bin
 # Unix-domain SocketChannel needs Java 16+; 17 is the oldest LTS that has it.
 JAVA_RELEASE ?= 17
 
-PROTOS := $(PROTO_DIR)/myos/bus/v1/wire.proto $(PROTO_DIR)/myos/bus/v1/bus.proto
+# The bus itself, and (Phase 6, for the app SDK) the core services' messages.
+PROTOS := $(PROTO_DIR)/myos/bus/v1/wire.proto $(PROTO_DIR)/myos/bus/v1/bus.proto \
+	$(PROTO_DIR)/myos/log/v1/log.proto $(PROTO_DIR)/myos/net/v1/net.proto \
+	$(PROTO_DIR)/myos/sysinfo/v1/sysinfo.proto
 SRCS := $(shell find src -name '*.java')
 
 all: $(BUILD)/myos-bus.jar

@@ -11,7 +11,7 @@ BR2_DOWNLOAD_FORCE_CHECK_HASHES=y
 
 # --- System ---------------------------------------------------------------
 BR2_TARGET_GENERIC_HOSTNAME="myos"
-BR2_TARGET_GENERIC_ISSUE="Welcome to myos (phase 5)"
+BR2_TARGET_GENERIC_ISSUE="Welcome to myos (phase 6)"
 BR2_TARGET_GENERIC_ROOT_PASSWD="myos"
 BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_MYOS_PATH)/board/qemu-x86_64/rootfs-overlay"
 
@@ -77,3 +77,14 @@ BR2_TARGET_GRUB2=y
 BR2_TARGET_GRUB2_I386_PC=y
 BR2_TARGET_GRUB2_BOOT_PARTITION="hd0,msdos1"
 BR2_TARGET_GRUB2_BUILTIN_MODULES_PC="boot linux ext2 fat part_msdos part_gpt normal biosdisk serial terminal"
+
+# --- Phase 6: Java app runtime ----------------------------------------------
+# OpenJDK 21 is built (full JDK, for its jmods), jlink'd down to
+# /usr/lib/myos/jdk, then removed from the target. jrun (in myos-services)
+# installs and runs app packages; the sample is in /usr/share/myos/apps.
+# `make WITH_JAVA=0` leaves all of this out (build/configs/no-java.fragment).
+BR2_PACKAGE_OPENJDK=y
+BR2_PACKAGE_OPENJDK_VERSION_21=y
+BR2_PACKAGE_OPENJDK_FULL_JDK=y
+BR2_PACKAGE_MYOS_BUS_JAVA=y
+BR2_PACKAGE_MYOS_JAVA=y
