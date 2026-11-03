@@ -148,11 +148,18 @@ CHECKS = [
 # under QEMU without KVM, hence the waits.
 APP = "app.org.myos.hello"
 WAIT_APP = f"for i in $(seq 60); do myctl status {APP} | grep -q running && break; sleep 1; done; myctl status {APP}"
-WAIT_APP_LOG = (f"for i in $(seq 90); do myos-log -t {APP} | grep -q 'hello from Java' && break; sleep 1; done; "
-                f"myos-log -t {APP}")
+
+
+def wait_app_log(needle):
+    return (f"for i in $(seq 90); do myos-log -t {APP} | grep -q '{needle}' && break; sleep 1; done; "
+            f"myos-log -t {APP}")
+
+
 APP_STATUS = ("python3 -c 'from myos.bus import Client; from google.protobuf.wrappers_pb2 import StringValue as S; "
               f"c = Client(); print(c.call(\"{APP}\", \"Status\", S(), S).value)'")
 JAVA_CHECKS = [
+    # The image's disk keeps its state between test runs: start without the app.
+    ("jrun remove org.myos.hello >/dev/null 2>&1; jrun list", "no apps installed"),
     ("myos-bus-ping-java", 'pong: "hello from Java"'),
     ("java --list-modules | grep -c -E '^(java.base|java.logging|jdk.unsupported|java.net.http|jdk.crypto.ec)@'", "5"),
     ("readlink /usr/bin/java; ls /usr/lib/jvm 2>&1 | grep -c 'No such'", "../lib/myos/jdk/bin/java\n1"),
@@ -161,7 +168,7 @@ JAVA_CHECKS = [
     ("grep org.myos.hello /etc/passwd", "app_hello:x:20000:20000:myos app org.myos.hello:"),
     (WAIT_APP, "running   pid"),
     # The done-check: its own log entries (SDK, over the bus) and its stdout (through init) in logd.
-    (WAIT_APP_LOG, "hello from Java: org.myos.hello 1.0.0 started (run 1)"),
+    (wait_app_log("started (run 1)"), "hello from Java: org.myos.hello 1.0.0 started (run 1)"),
     (f"myos-log -t {APP}", "stdout works too"),
     (f"myctl logs {APP} | grep -q 'heartbeat 1: load' && echo beat", "beat"),
     ("ps -o user= -C java", "app_hello"),
@@ -193,13 +200,13 @@ INSTALLED_CHECKS = [
     ("grep -c -e phase3 -e phase5 /var/log/messages", "0"),
     # ([e] so this command, saved to history as it runs, doesn't match itself)
     ("grep -c 'msh-compl[e]te-test' /root/.msh_history", "0"),
+    ("readlink /proc/$$/exe", "/usr/bin/msh"),
 ]
 
 # Phase 6 on the installed disk: the app came along and starts at boot.
 INSTALLED_JAVA_CHECKS = [
     (WAIT_APP, "running   pid"),
-    (WAIT_APP_LOG.replace("hello from Java", "started (run 3)"), "started (run 3)"),
-    ("readlink /proc/$$/exe", "/usr/bin/msh"),
+    (wait_app_log("started (run 3)"), "started (run 3)"),
 ]
 
 # Typed with control keys: (what to send, text that must appear before the
