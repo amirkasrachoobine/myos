@@ -53,6 +53,16 @@ savedefconfig: config
 rebuild-%: config
 	$(BR_MAKE) $*-dirclean $*
 
+# Rebuild every myos package (build/package/*) from the current source, then
+# the image. Buildroot copies a local package's source only on its first
+# build, so after `git pull` or `git am` the others would still be built
+# from the old copy. Third-party packages (OpenJDK, the toolchain) are kept.
+MYOS_PKGS := $(notdir $(patsubst %/,%,$(wildcard $(EXTERNAL)/package/*/)))
+.PHONY: rebuild-myos
+rebuild-myos: config
+	$(BR_MAKE) $(addsuffix -dirclean,$(MYOS_PKGS))
+	$(BR_MAKE)
+
 run:
 	O=$(O) ./scripts/run-qemu.sh
 
