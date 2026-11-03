@@ -35,7 +35,7 @@ define MYOS_JAVA_BUILD_CMDS
 endef
 
 define MYOS_JAVA_INSTALL_TARGET_CMDS
-	test ! -e $(TARGET_DIR)/usr/lib/myos/jdk || rm -r $(TARGET_DIR)/usr/lib/myos/jdk
+	test ! -e $(TARGET_DIR)/usr/lib/myos/jdk || rm -rf $(TARGET_DIR)/usr/lib/myos/jdk
 	mkdir -p $(TARGET_DIR)/usr/lib/myos
 	cp -a $(@D)/jdk/build/jdk $(TARGET_DIR)/usr/lib/myos/jdk
 	$(MAKE) -C $(@D)/sdk $(MYOS_JAVA_JAR_OPTS) install DESTDIR=$(TARGET_DIR) JAVADIR=/usr/share/java
@@ -51,7 +51,7 @@ endef
 ifeq ($(BR2_PACKAGE_MYOS_JAVA_KEEP_FULL_JDK),)
 define MYOS_JAVA_DROP_FULL_JDK
 	find $(TARGET_DIR)/usr/bin -maxdepth 1 -type l -lname '*lib/jvm/*' -delete
-	test ! -e $(TARGET_DIR)/usr/lib/jvm || rm -r $(TARGET_DIR)/usr/lib/jvm
+	test ! -e $(TARGET_DIR)/usr/lib/jvm || rm -rf $(TARGET_DIR)/usr/lib/jvm
 	ln -sf ../lib/myos/jdk/bin/java $(TARGET_DIR)/usr/bin/java
 endef
 MYOS_JAVA_TARGET_FINALIZE_HOOKS += MYOS_JAVA_DROP_FULL_JDK

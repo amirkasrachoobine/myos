@@ -20,12 +20,12 @@ MODULES ?= java.base,java.logging,jdk.unsupported,java.net.http,jdk.crypto.ec
 all: $(OUT)/bin/java
 
 $(OUT)/bin/java:
-	test ! -e $(OUT) || rm -r $(OUT)
+	test ! -e $(OUT) || rm -rf $(OUT)
 	$(JLINK) --module-path $(JMODS) --add-modules $(MODULES) \
 		--strip-debug --no-header-files --no-man-pages --compress=zip-6 \
 		--output $(OUT)
 
 clean:
-	test ! -e build || rm -r build
+	test ! -e build || rm -rf build
 
 .PHONY: all clean
