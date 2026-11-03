@@ -56,6 +56,9 @@ myos/
 ## Day-to-day
 
 - Edit a component, then rebuild just that package: `make rebuild-myos-hello-rust`
+- After `git pull` or `git am`: `make rebuild-myos`. Buildroot copies a local package's
+  source only on its first build, so this rebuilds all our packages from the new source
+  (OpenJDK and the toolchain are kept)
 - Change Buildroot options: `make menuconfig`, then `make savedefconfig` to write them back to `build/configs/`
 - Change kernel options: add them to `linux.fragment` (preferred) or use `make linux-menuconfig`
 - Fast iteration on Rust/C++ code: build and test natively on your host first (`cargo run`, `make`), then rebuild the package for the image
