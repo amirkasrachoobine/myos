@@ -6,7 +6,9 @@ BR2_TOOLCHAIN_BUILDROOT_GLIBC=y
 BR2_TOOLCHAIN_BUILDROOT_CXX=y
 BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_6_18=y
 BR2_CCACHE=y
-BR2_GLOBAL_PATCH_DIR="board/qemu/patches"
+# Buildroot's QEMU patches, then ours (build/patches/<package>/): Phase 6
+# backports a glibc 2.42+ build fix to OpenJDK 21.0.4.
+BR2_GLOBAL_PATCH_DIR="board/qemu/patches $(BR2_EXTERNAL_MYOS_PATH)/patches"
 BR2_DOWNLOAD_FORCE_CHECK_HASHES=y
 
 # --- System ---------------------------------------------------------------
