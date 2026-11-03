@@ -167,7 +167,8 @@ JAVA_CHECKS = [
     ("ps -o user= -C java", "app_hello"),
     ("grep -E '^(Uid|NoNewPrivs)' /proc/$(pidof java)/status", "Uid:\t20000\t20000\t20000\t20000\nNoNewPrivs:\t1"),
     ("readlink /proc/$(pidof java)/ns/net /proc/1/ns/net | uniq | wc -l", "2"),
-    ("cat /etc/myos/bus/policy.d/20000", "call sysinfo"),
+    # grep, not cat: the file starts with a "# " comment, which would look like the prompt.
+    ("grep -x 'call sysinfo' /etc/myos/bus/policy.d/20000", "call sysinfo"),
     ("cat /var/lib/myos/apps/org.myos.hello/data/runs", "1"),
     (APP_STATUS, "heartbeats"),
     ("jrun list | grep org.myos.hello", "app_hello"),
