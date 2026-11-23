@@ -702,3 +702,40 @@ guest to shut it down. If the desktop fails to appear, use the serial console
 to run `initctl status desktop` and read `/run/myos-desktop/weston.log`.
 
 `make run` and `make test` still use the serial image in `output/`.
+
+## Phase 8: read-only Control Center
+
+Click the **MyOS Control Center** launcher in Weston or run
+`myos-control-center` in the MyOS Terminal. The Control Center opens as a
+keyboard-driven dashboard. Press **1–5** to switch pages, **↑/↓** to move,
+**R** to refresh, and **Q** to close it.
+
+- **Overview** shows uptime, CPU, memory, load and process count from sysinfod.
+- **Services** shows the states reported by myos-init. Select a service and
+  press **Enter** to open its logs. Press **A** to clear the service filter.
+- **Apps** shows the installed Java app inventory from `jrun list`.
+- **Network** shows interfaces, IPv4 addresses, gateways and DNS from netd.
+- **Logs** shows up to 100 matching entries from logd, newest first in UTC.
+
+The active page refreshes every two seconds after each response. If a data
+source is unavailable, the dashboard shows the error and retries on the next
+refresh. The desktop runs as guest root, which is required for init status.
+Log visibility follows logd's existing permissions.
+
+For a fresh graphical build, run `make run-gui`. To upgrade an existing
+Phase 7 image, rebuild ncurses, Python and the admin tools before launching.
+Buildroot reuses completed package builds, so this step enables Python's
+curses module and installs the Control Center into the existing image.
+
+```sh
+make -j1 O="$PWD/output-gui" GUI_PROFILE=1 rebuild-ncurses rebuild-python3 rebuild-myos-admin
+make run-gui
+```
+
+Use the same `WITH_JAVA` setting and output directory as your Phase 7 build.
+If you use a custom directory, pass it as `O` for the rebuild and `GUI_O`
+for `make run-gui`.
+
+In the guest, select **Services**, highlight `netd`, and press **Enter**
+to check the log filter. Check that **Network** shows the guest's interface
+and that **Apps** shows the inventory or an empty-state message.

@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /usr/bin/weston-terminal --maximized --shell=/usr/bin/myos-control-center

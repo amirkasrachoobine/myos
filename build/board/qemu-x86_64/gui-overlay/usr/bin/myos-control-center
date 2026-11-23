@@ -1,0 +1,5 @@
+#!/usr/bin/env python3
+"""Open the read-only MyOS Control Center."""
+from myos.admin.control_center import main
+
+main()
