@@ -1,6 +1,6 @@
 # myos
 
-A headless Linux-based OS with a userland written in Rust, C++, Python and Java.
+A Linux-based OS with a userland written in Rust, C++, Python and Java.
 Phases 0–6 are done: boot, the Rust init, the IPC bus, the core services,
 the C++ shell and utilities, the Python admin tools, and the Java app runtime.
 
@@ -21,6 +21,8 @@ make test       # automated boot test
 
 The image includes OpenJDK 21 for the Phase 6 app runtime, which adds about an
 hour to a clean build. `make WITH_JAVA=0` leaves Java out.
+
+For the optional Wayland desktop, see [Phase 7](#phase-7-graphics-in-qemu).
 
 ## What's in the image
 
@@ -672,3 +674,31 @@ refuses to start apps that lack `network`. log.proto's `StatsReply.file_bytes`
 is now `file_size`: protobuf-java generates `getFileBytes()` for the `file`
 field too. The field number is the same, so the wire format doesn't change.
 myctl's `service.NAME.enabled` now accepts names with dots.
+
+## Phase 7: graphics in QEMU
+
+`make run-gui` builds a separate image in `output-gui/` and opens a GTK
+QEMU window on the host. The guest uses a virtio GPU, a virtio keyboard and
+tablet, and Weston with software rendering. This profile requires the
+system QEMU with its GTK display backend. On Fedora:
+
+```sh
+sudo dnf install gcc gcc-c++ make git file wget cpio unzip rsync bc \
+                 python3 ncurses-devel elfutils-libelf-devel openssl-devel \
+                 perl patch qemu-system-x86 qemu-ui-gtk
+make run-gui
+```
+
+Use `make run-gui WITH_JAVA=0` when configuring a fresh graphical output
+directory if you only need the desktop. `make build-gui` builds the image
+without opening a window. Set `GUI_O` to choose a different graphical build
+directory.
+
+Click **MyOS Terminal** in the Weston panel to open `msh` as guest root.
+Type `echo "MyOS graphics"` to check keyboard input, then resize the host
+window and check that the desktop scales with it. The launching terminal
+still carries the serial login (`root` / `myos`). Run `poweroff` inside the
+guest to shut it down. If the desktop fails to appear, use the serial console
+to run `initctl status desktop` and read `/run/myos-desktop/weston.log`.
+
+`make run` and `make test` still use the serial image in `output/`.

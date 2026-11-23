@@ -2,6 +2,7 @@
 #
 #   make            fetch Buildroot, configure, build everything
 #   make run        boot the image in QEMU (serial console in this terminal)
+#   make run-gui    build and boot the optional Wayland image in a QEMU window
 #   make test       automated boot test: waits for login, logs in, runs checks,
 #                   installs to a second disk and boots that (Phase 5)
 #   make menuconfig / linux-menuconfig / savedefconfig
@@ -10,14 +11,19 @@
 #   WITH_JAVA=0     leave out OpenJDK and the Phase 6 Java app runtime (saves
 #                   about an hour on a clean build)
 #   O=<dir>         build output directory (default: ./output)
+#   GUI_O=<dir>     graphical build output directory (default: ./output-gui)
 
 BR_VERSION   ?= 2026.02.x
 BR_URL       ?= https://github.com/buildroot/buildroot.git
 BR_DIR       ?= $(CURDIR)/buildroot
 O            ?= $(CURDIR)/output
+GUI_O        ?= $(CURDIR)/output-gui
 EXTERNAL     := $(CURDIR)/build
 DEFCONFIG    := myos_qemu_x86_64_defconfig
 NO_JAVA_FRAG := $(EXTERNAL)/configs/no-java.fragment
+ifeq ($(GUI_PROFILE),1)
+GUI_FRAG     := $(EXTERNAL)/configs/gui.fragment
+endif
 
 BR_MAKE = $(MAKE) -C $(BR_DIR) O=$(O) BR2_EXTERNAL=$(EXTERNAL)
 
@@ -31,10 +37,15 @@ $(BR_DIR)/Makefile:
 
 buildroot: $(BR_DIR)/Makefile
 
-$(O)/.config: $(EXTERNAL)/configs/$(DEFCONFIG) | buildroot
+$(O)/.config: $(EXTERNAL)/configs/$(DEFCONFIG) $(GUI_FRAG) | buildroot
 	$(BR_MAKE) $(DEFCONFIG)
+ifeq ($(GUI_PROFILE),1)
+	cat $(GUI_FRAG) >> $(O)/.config
+endif
 ifeq ($(WITH_JAVA),0)
 	cat $(NO_JAVA_FRAG) >> $(O)/.config
+endif
+ifneq ($(filter 1,$(GUI_PROFILE))$(filter 0,$(WITH_JAVA)),)
 	$(BR_MAKE) olddefconfig
 endif
 
@@ -65,6 +76,13 @@ rebuild-myos: config
 
 run:
 	O=$(O) ./scripts/run-qemu.sh
+
+.PHONY: build-gui run-gui
+build-gui:
+	$(MAKE) O="$(abspath $(GUI_O))" GUI_PROFILE=1 build
+
+run-gui: build-gui
+	O="$(abspath $(GUI_O))" GUI=1 ./scripts/run-qemu.sh
 
 test:
 	O=$(O) python3 tests/boot_test.py

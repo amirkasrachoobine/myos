@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+# The desktop image also supports recovery through the serial console.
+set -- /sys/bus/virtio/drivers/virtio_gpu/virtio*
+[ -e "$1" ] || exit 0
+
+# Confirm that eudev is accepting commands before sending coldplug events.
+udevadm control --timeout=5 --start-exec-queue
+udevadm trigger --type=subsystems --action=add
+udevadm trigger --type=devices --action=add
+udevadm settle --timeout=15
+
+export XDG_RUNTIME_DIR=/run/myos-desktop
+export LIBSEAT_BACKEND=builtin SEATD_VTBOUND=0
+export HOME=/root SHELL=/usr/bin/msh
+install -d -m 0700 "$XDG_RUNTIME_DIR"
+exec weston --backend=drm --renderer=pixman --config=/etc/myos/weston.ini \
+    --log=/run/myos-desktop/weston.log

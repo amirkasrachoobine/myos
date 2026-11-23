@@ -1,16 +1,25 @@
 #!/usr/bin/env bash
 # Boot the myos image in QEMU with the serial console on this terminal.
-# Exit QEMU with: Ctrl-A then X.   Login: root / myos
+# GUI=1 also opens a graphical window. Ctrl-A then X exits the serial launcher.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 O="${O:-$ROOT/output}"
 IMAGES="$O/images"
 
-# Prefer the QEMU Buildroot built for us; fall back to the system one.
-QEMU="$O/host/bin/qemu-system-x86_64"
-[ -x "$QEMU" ] || QEMU="$(command -v qemu-system-x86_64 || true)"
-[ -n "$QEMU" ] || { echo "qemu-system-x86_64 not found; run 'make' first" >&2; exit 1; }
+if [ "${GUI:-0}" = 1 ]; then
+    # Buildroot's host QEMU has no window backend.
+    QEMU="$(command -v qemu-system-x86_64 || true)"
+    [ -n "$QEMU" ] || { echo "install system QEMU with GTK display support" >&2; exit 1; }
+    DISPLAY_ARGS=(-display "${QEMU_DISPLAY:-gtk,zoom-to-fit=on}" -serial mon:stdio
+                  -vga none -device virtio-vga
+                  -device virtio-keyboard-pci -device virtio-tablet-pci)
+else
+    QEMU="$O/host/bin/qemu-system-x86_64"
+    [ -x "$QEMU" ] || QEMU="$(command -v qemu-system-x86_64 || true)"
+    [ -n "$QEMU" ] || { echo "qemu-system-x86_64 not found; run 'make' first" >&2; exit 1; }
+    DISPLAY_ARGS=(-nographic)
+fi
 
 # Default: load the kernel straight from output/images and use rootfs.ext2
 # as the disk. DISK=FILE instead boots FILE through its own bootloader, as a
@@ -41,5 +50,5 @@ exec "$QEMU" \
     -M pc "${ACCEL[@]}" -m "${MEM:-512}" -smp "${SMP:-2}" \
     "${BOOT[@]}" "${EXTRA[@]}" \
     -netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
-    -nographic -no-reboot \
+    "${DISPLAY_ARGS[@]}" -no-reboot \
     "$@"

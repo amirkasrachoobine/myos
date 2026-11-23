@@ -1,0 +1,4 @@
+description = "Weston Wayland desktop on the QEMU virtio GPU"
+exec = ["/usr/bin/myos-desktop"]
+restart = "on-failure"
+after = ["udevd"]

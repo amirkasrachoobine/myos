@@ -1,5 +1,6 @@
 /buildroot/
 /output/
+/output-gui/
 /rust/**/target/
 /cpp/**/myos-hello-cpp
 __pycache__/
