@@ -1,13 +1,15 @@
-"""Read-only dashboard for the MyOS desktop terminal."""
+"""System dashboard for the MyOS desktop terminal."""
 
 import curses
 import datetime
-import shutil
 import subprocess
+import textwrap
 import time
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from concurrent.futures import ThreadPoolExecutor
 
-from myos.admin import initctl
+from myos.admin import control_actions, initctl
 from myos.admin.myctl import format_entry
 from myos.bus import BusError, Client
 from myos.log.v1 import log_pb2
@@ -40,14 +42,11 @@ def overview():
 
 
 def apps():
-    jrun = shutil.which("jrun")
-    if not jrun:
-        return ["App inventory unavailable. jrun is missing."]
-    result = subprocess.run([jrun, "list"], check=True, capture_output=True,
-                            text=True, errors="replace", timeout=2)
-    if result.stdout.startswith("no apps installed"):
-        return ["No apps installed."]
-    return result.stdout.splitlines()
+    output = control_actions.jrun("list", timeout=5)
+    if output.startswith("no apps installed"):
+        return ["No apps installed."], []
+    rows = output.splitlines()[1:]
+    return rows, [row.split()[0] for row in rows]
 
 
 def network():
@@ -81,10 +80,12 @@ def snapshot(tab, tag):
             services = initctl.status()
             return [f"{service.name:<24} {service.state:<10} {service.detail}"
                     for service in services], [service.name for service in services]
+        if tab == "Apps":
+            return apps()
         if tab == "Logs":
             return logs(tag), []
-        return {"Overview": overview, "Apps": apps, "Network": network}[tab](), []
-    except (BusError, initctl.InitError, OSError, subprocess.SubprocessError) as error:
+        return {"Overview": overview, "Network": network}[tab](), []
+    except (ValueError, BusError, initctl.InitError, OSError, subprocess.SubprocessError) as error:
         source = {"Overview": "System information", "Services": "Service status",
                   "Apps": "App inventory", "Network": "Network status", "Logs": "Logs"}[tab]
         detail = getattr(error, "stderr", "") or str(error)
@@ -103,37 +104,104 @@ def put(screen, y, line, style=0):
             pass
 
 
-def dashboard(screen, executor):
+def package_path(screen):
+    value = ""
+    while True:
+        screen.erase()
+        put(screen, 0, "Install or upgrade a local app", curses.A_BOLD)
+        put(screen, 1, "Type or paste the absolute guest .mapp path.")
+        put(screen, 2, "Enter Review package   Esc Cancel")
+        _, width = screen.getmaxyx()
+        visible = max(0, width - 3)
+        put(screen, 4, "> " + (value[-visible:] if visible else ""))
+        key = screen.get_wch()
+        if key == "\x1b":
+            return ""
+        if key in ("\n", "\r", curses.KEY_ENTER):
+            return value
+        if key in ("\b", "\x7f", curses.KEY_BACKSPACE):
+            value = value[:-1]
+        elif isinstance(key, str) and key.isprintable() and len(value) < 4096:
+            value += key
+
+
+def dialog(screen, title, lines, confirm=False):
+    """Wrap long output and keep every requested permission readable."""
+    offset = 0
+    while True:
+        screen.erase()
+        height, width = screen.getmaxyx()
+        page = max(1, height - 3)
+        wrapped = [part for line in lines for part in
+                   (textwrap.wrap(line, max(1, width - 1)) or [""])]
+        offset = max(0, min(offset, len(wrapped) - page))
+        put(screen, 0, title, curses.A_BOLD)
+        for y, line in enumerate(wrapped[offset:offset + page], 1):
+            put(screen, y, line)
+        footer = "Y Confirm   Esc Cancel" if confirm else "Enter or Esc Close"
+        put(screen, height - 1, footer + "   ↑↓ Scroll")
+        key = screen.getch()
+        if confirm and key in (ord("y"), ord("Y")):
+            return True
+        if key == 27 or (not confirm and key in (10, 13, curses.KEY_ENTER)):
+            return False
+        offset += {curses.KEY_UP: -1, curses.KEY_DOWN: 1,
+                   curses.KEY_PPAGE: -page, curses.KEY_NPAGE: page}.get(key, 0)
+
+
+def dashboard(screen, executor, staged):
     screen.timeout(150)
     try:
         curses.curs_set(0)
     except curses.error:
         pass
     tab, tag = "Overview", ""
-    rows, services = ["Loading…"], []
+    rows, targets = ["Loading…"], []
     position = offset = 0
     generation = requested_generation = 0
     refresh_at = 0.0
     pending = None
+    operation = None
+    operation_name = ""
 
     while True:
+        if operation is not None and operation.done():
+            try:
+                message = operation.result()
+            except (OSError, ValueError, initctl.InitError, subprocess.SubprocessError) as error:
+                dialog(screen, f"{operation_name} failed", str(error).splitlines())
+            else:
+                if operation_name == "Review package":
+                    if dialog(screen, "Install or upgrade this app?",
+                              message.splitlines(), confirm=True):
+                        operation_name = "Install app"
+                        operation = executor.submit(control_actions.apply, "install", staged)
+                        continue
+                else:
+                    dialog(screen, f"{operation_name} response",
+                           message.splitlines() or ["Request completed."])
+            operation = None
+            staged.unlink(missing_ok=True)
+            generation += 1
+            refresh_at = 0
+
         if pending is not None and pending.done():
-            new_rows, new_services = pending.result()
+            new_rows, new_targets = pending.result()
             pending = None
             if requested_generation == generation:
-                if new_services and position < len(services):
-                    selected = services[position]
-                    if selected in new_services:
-                        position = new_services.index(selected)
-                rows, services = new_rows, new_services
+                if new_targets and position < len(targets):
+                    selected = targets[position]
+                    if selected in new_targets:
+                        position = new_targets.index(selected)
+                rows, targets = new_rows, new_targets
                 refresh_at = time.monotonic() + REFRESH_SECONDS
-        if pending is None and time.monotonic() >= refresh_at:
+        if pending is None and operation is None and time.monotonic() >= refresh_at:
             requested_generation = generation
             pending = executor.submit(snapshot, tab, tag)
 
         screen.erase()
         height, _ = screen.getmaxyx()
-        page = max(1, height - 5)
+        page = max(1, height - 6)
         position = max(0, min(position, len(rows) - 1))
         offset = min(offset, position)
         offset = max(offset, position - page + 1)
@@ -145,26 +213,64 @@ def dashboard(screen, executor):
             put(screen, 2, f"{tag or 'All services'} · Newest first · UTC")
         elif tab == "Services":
             put(screen, 2, f"{'Service':<24} {'State':<10} Detail")
+        elif tab == "Apps":
+            put(screen, 2, f"{'ID':<32} {'VERSION':<10} {'USER':<16} STATE")
         if not rows:
             put(screen, 3, "No matching logs." if tab == "Logs" else "No services.")
         for index, row in enumerate(rows[offset:offset + page], offset):
-            style = curses.A_REVERSE if index == position and services else 0
+            style = curses.A_REVERSE if index == position and targets else 0
             put(screen, index - offset + 3, row, style)
         help_text = "1–5 Tabs   ↑↓ Scroll   R Refresh   Q Quit"
         if tab == "Services":
-            help_text += "   Enter View logs"
+            put(screen, height - 2, "Enter View logs   S Start   T Stop   X Restart")
+        elif tab == "Apps":
+            put(screen, height - 2, "I Install or upgrade   D Remove and keep data")
         elif tab == "Logs" and tag:
             help_text += "   A All logs"
-        put(screen, height - 1, help_text)
+        if operation is not None:
+            put(screen, height - 1, f"{operation_name} in progress…")
+        else:
+            put(screen, height - 1, help_text)
         screen.refresh()
 
         key = screen.getch()
+        if operation is not None:
+            continue
+        letter = chr(key).lower() if 0 <= key < 128 else ""
+
+        if tab == "Services" and targets and letter in control_actions.SERVICE_ACTIONS:
+            action = control_actions.SERVICE_ACTIONS[letter]
+            target = targets[position]
+            if dialog(screen, f"{action.title()} {target}?",
+                      ["This closes the graphical session."] if target == "desktop"
+                      and action != "start" else [], confirm=True):
+                operation_name = f"{action.title()} {target}"
+                operation = executor.submit(control_actions.apply, action, target)
+            continue
+        if tab == "Apps" and letter == "d" and targets:
+            target = targets[position]
+            if dialog(screen, f"Remove {target}?", ["App data will be kept for reinstall."],
+                      confirm=True):
+                operation_name = f"Remove {target}"
+                operation = executor.submit(control_actions.apply, "remove", target)
+            continue
+        if tab == "Apps" and letter == "i":
+            screen.timeout(-1)
+            try:
+                path = package_path(screen)
+            finally:
+                screen.timeout(150)
+            if path:
+                operation_name = "Review package"
+                operation = executor.submit(control_actions.preview, path, staged)
+            continue
+
         if key in (ord("q"), ord("Q")):
             return
         if ord("1") <= key <= ord("5"):
             tab, tag = TABS[key - ord("1")], ""
-        elif key in (curses.KEY_ENTER, 10, 13) and tab == "Services" and services:
-            tab, tag = "Logs", services[position]
+        elif key in (curses.KEY_ENTER, 10, 13) and tab == "Services" and targets:
+            tab, tag = "Logs", targets[position]
         elif key in (ord("a"), ord("A")) and tab == "Logs":
             tag = ""
         elif key in (ord("r"), ord("R")):
@@ -178,9 +284,10 @@ def dashboard(screen, executor):
 
         generation += 1
         position = offset = refresh_at = 0
-        rows, services = ["Loading…"], []
+        rows, targets = ["Loading…"], []
 
 
 def main():
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        curses.wrapper(dashboard, executor)
+    with TemporaryDirectory(prefix="myos-control-center-") as directory:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            curses.wrapper(dashboard, executor, Path(directory) / "package.mapp")

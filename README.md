@@ -739,3 +739,35 @@ for `make run-gui`.
 In the guest, select **Services**, highlight `netd`, and press **Enter**
 to check the log filter. Check that **Network** shows the guest's interface
 and that **Apps** shows the inventory or an empty-state message.
+
+## Phase 9: system actions in Control Center
+
+Open **MyOS Control Center** from Weston. On **Services** (2), highlight a
+service and press **S** to start, **T** to stop, or **X** to restart. Press **Y**
+to confirm or **Esc** to cancel. The response comes from myos-init, and the
+service list refreshes to show the resulting state. Enter still opens logs for
+the selected service.
+
+On **Apps** (3), press **I** and enter the absolute path of a local guest
+`.mapp` file. The Control Center validates a private copy with `jrun check`
+and displays the app ID, version and requested permissions. Scroll to read
+the full review. Press **Y** to install or upgrade that same copy. To remove an
+app, highlight it, press **D**, then confirm. Its data and app user are kept
+for reinstall. Errors from myos-init and jrun appear in the Control Center.
+
+System actions use the existing guest-root desktop session. Service actions
+use the existing root-only init socket. App actions require a Java-enabled
+image and use jrun. After updating an existing Phase 8 graphical build:
+
+```sh
+make O="$PWD/output-gui" GUI_PROFILE=1 rebuild-myos-admin
+make run-gui
+```
+
+For a smoke test in the guest, install
+`/usr/share/myos/apps/org.myos.hello.mapp` from **Apps**. Review its permissions
+and confirm. In **Services**, select `app.org.myos.hello` and stop, start, then
+restart it, checking the state after each action. In **Apps**, remove it and
+verify that the inventory no longer lists it. From the guest terminal, check
+that `/var/lib/myos/apps/org.myos.hello/data` still exists. Reinstall the
+sample and try an invalid package path to check the error dialog.
