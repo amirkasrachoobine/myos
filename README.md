@@ -771,3 +771,52 @@ restart it, checking the state after each action. In **Apps**, remove it and
 verify that the inventory no longer lists it. From the guest terminal, check
 that `/var/lib/myos/apps/org.myos.hello/data` still exists. Reinstall the
 sample and try an invalid package path to check the error dialog.
+
+## Phase 10: AI service and baselines
+
+MyOS starts `ai-monitor` through the existing service supervisor. Its Python
+collector reads Linux kernel counters and sends JSON lifecycle and source
+error events to logd through the supervisor. Use the existing service controls
+to enable, disable or restart it.
+
+```sh
+myctl status ai-monitor
+myctl disable ai-monitor
+myctl enable ai-monitor
+myctl logs ai-monitor
+```
+
+Edit `/etc/myos/ai-monitor.toml` to change the interval (0.25–300 seconds)
+or the history capacity (2–1000 samples), then run `myctl restart ai-monitor`.
+The defaults retain 120 samples at five-second intervals. As root, run
+`myos-ai --report` to export the timestamped samples and rolling per-feature
+count, mean and population standard deviation as JSON. The baseline describes
+the current workload over the retained window. Samples survive service
+restarts and reset at reboot. Metrics files are readable only by the service
+user (root in the standard profiles).
+
+## Phase 11: real-time system monitoring
+
+Open the Control Center and press **6** for **Monitoring**. The page shows
+the last sample time, CPU use, RAM and swap, available root filesystem space,
+disk and network throughput, process and thread counts, uptime, thermal
+zones, recent error-level log entries and a short sample history.
+The first sample after service start has no rates. Rates are also unavailable
+for intervals with device changes or counter resets. Disk rates aggregate
+underlying whole devices. Network rates exclude loopback. Guests without
+readable thermal zones display an empty sensor list.
+
+From an existing graphical build, rebuild the admin package and regenerate
+the image from the MyOS checkout. Pass the same `WITH_JAVA` value you used
+for the existing image.
+
+```sh
+make O="$PWD/output-gui" GUI_PROFILE=1 rebuild-myos-admin
+make run-gui
+```
+
+In the guest, wait for two samples, then view Monitoring and run
+`myos-ai --report` to check that CPU rates and baselines populate. Start a
+CPU workload and check that subsequent samples reflect the change. Enable
+or disable the service from `myctl` to check that collection resumes or
+pauses. On a serial image, use `myos-ai --report` and `myctl logs ai-monitor`.

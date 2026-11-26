@@ -1,0 +1,4 @@
+#!/usr/bin/env python3
+from myos.admin.ai_monitor import main
+
+raise SystemExit(main())

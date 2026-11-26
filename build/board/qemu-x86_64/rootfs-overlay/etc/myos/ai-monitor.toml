@@ -1,0 +1,2 @@
+interval_seconds = 5
+history_samples = 120

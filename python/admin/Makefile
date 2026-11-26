@@ -10,7 +10,7 @@ all:
 install:
 	install -d $(DESTDIR)$(SITE)/myos/admin $(DESTDIR)$(BINDIR)
 	install -m 644 $(MODULES) $(DESTDIR)$(SITE)/myos/admin/
-	install -m 755 myctl myos-install $(DESTDIR)$(BINDIR)/
+	install -m 755 myctl myos-install myos-ai $(DESTDIR)$(BINDIR)/
 
 clean:
 	rm -rf $(shell find . -name __pycache__)

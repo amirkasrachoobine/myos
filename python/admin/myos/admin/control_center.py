@@ -9,14 +9,14 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from concurrent.futures import ThreadPoolExecutor
 
-from myos.admin import control_actions, initctl
+from myos.admin import ai_monitor, control_actions, initctl
 from myos.admin.myctl import format_entry
 from myos.bus import BusError, Client
 from myos.log.v1 import log_pb2
 from myos.net.v1 import net_pb2
 from myos.sysinfo.v1 import sysinfo_pb2
 
-TABS = ("Overview", "Services", "Apps", "Network", "Logs")
+TABS = ("Overview", "Services", "Apps", "Network", "Logs", "Monitoring")
 REFRESH_SECONDS = 2
 
 
@@ -67,11 +67,58 @@ def network():
     return rows
 
 
-def logs(tag):
+def logs(tag, **filters):
     with Client(timeout=1) as bus:
-        reply = bus.call("log", "Query", log_pb2.QueryRequest(limit=100, tag=tag),
+        reply = bus.call("log", "Query", log_pb2.QueryRequest(tag=tag, **filters),
                          log_pb2.QueryReply)
     return [format_entry(entry) for entry in reversed(reply.entries)]
+
+
+def metric(value, unit="", scale=1):
+    return f"{value / scale:.1f}{unit}" if value is not None else "Unavailable"
+
+
+def monitoring():
+    try:
+        state = ai_monitor.read_state()
+    except FileNotFoundError:
+        return ["Waiting for telemetry. Check ai-monitor on the Services tab."]
+    samples = state["samples"]
+    sample = samples[-1]
+    mib = 1024 * 1024
+    rows = [
+        f"Last collected  {sample['timestamp']}",
+        f"CPU             {metric(sample['cpu_percent'], '%')}",
+        f"RAM             {metric(sample['memory_used_bytes'], ' MiB', mib)} / "
+        f"{metric(sample['memory_total_bytes'], ' MiB', mib)}",
+        f"Swap            {metric(sample['swap_used_bytes'], ' MiB', mib)} / "
+        f"{metric(sample['swap_total_bytes'], ' MiB', mib)}",
+        f"Processes       {sample['processes']} processes · {sample['threads']} threads",
+        f"Uptime          {metric(sample['uptime_seconds'], ' s')}",
+    ]
+    root = sample["root_filesystem"] or {}
+    rows.append(f"Root volume     {metric(root.get('available_bytes'), ' MiB', mib)} available / "
+                f"{metric(root.get('total_bytes'), ' MiB', mib)} total")
+    for label, key in (("Disk read", "disk_read"), ("Disk write", "disk_write"),
+                       ("Network RX", "network_rx"), ("Network TX", "network_tx")):
+        rows.append(f"{label:<16}{metric(sample[key + '_bytes_per_second'], ' KiB/s', 1024)}")
+    temperatures = sample["temperature_celsius"]
+    rows.extend(["", "Temperatures"])
+    rows.extend([f"{sensor}  {value:.1f} °C" for sensor, value in temperatures.items()]
+                or ["No readable thermal zones."])
+    rows.extend(["", "Recent system errors"])
+    try:
+        rows.extend(logs("", limit=10, max_priority=3) or ["No recent error entries."])
+    except (OSError, BusError) as error:
+        rows.append(f"System logs unavailable: {error}")
+    rows.extend(f"{name}: {error}" for name, error in sample["errors"].items())
+    rows.extend(["", f"Recent samples ({len(samples)} retained; newest 12 below)",
+                 "UTC                       CPU %      RAM %     Swap %"])
+    for item in reversed(samples[-12:]):
+        values = (metric(item[key]) if item[key] is not None else "—"
+                  for key in ("cpu_percent", "memory_percent", "swap_percent"))
+        rows.append(f"{item['timestamp'][:23]:<24}" + "".join(f"{value:>10}" for value in values))
+    return rows
 
 
 def snapshot(tab, tag):
@@ -83,11 +130,11 @@ def snapshot(tab, tag):
         if tab == "Apps":
             return apps()
         if tab == "Logs":
-            return logs(tag), []
-        return {"Overview": overview, "Network": network}[tab](), []
+            return logs(tag, limit=100), []
+        return {"Overview": overview, "Network": network, "Monitoring": monitoring}[tab](), []
     except (ValueError, BusError, initctl.InitError, OSError, subprocess.SubprocessError) as error:
         source = {"Overview": "System information", "Services": "Service status",
-                  "Apps": "App inventory", "Network": "Network status", "Logs": "Logs"}[tab]
+                  "Apps": "App inventory", "Network": "Network status", "Logs": "Logs", "Monitoring": "Telemetry"}[tab]
         detail = getattr(error, "stderr", "") or str(error)
         return [f"{source} unavailable", detail.strip()], []
 
@@ -220,7 +267,7 @@ def dashboard(screen, executor, staged):
         for index, row in enumerate(rows[offset:offset + page], offset):
             style = curses.A_REVERSE if index == position and targets else 0
             put(screen, index - offset + 3, row, style)
-        help_text = "1–5 Tabs   ↑↓ Scroll   R Refresh   Q Quit"
+        help_text = "1–6 Tabs   ↑↓ Scroll   R Refresh   Q Quit"
         if tab == "Services":
             put(screen, height - 2, "Enter View logs   S Start   T Stop   X Restart")
         elif tab == "Apps":
@@ -267,7 +314,7 @@ def dashboard(screen, executor, staged):
 
         if key in (ord("q"), ord("Q")):
             return
-        if ord("1") <= key <= ord("5"):
+        if 0 <= key - ord("1") < len(TABS):
             tab, tag = TABS[key - ord("1")], ""
         elif key in (curses.KEY_ENTER, 10, 13) and tab == "Services" and targets:
             tab, tag = "Logs", targets[position]

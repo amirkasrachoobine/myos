@@ -1,0 +1,6 @@
+description = "MyOS AI telemetry and baseline service"
+exec = ["/usr/bin/myos-ai"]
+enabled = true
+restart = "on-failure"
+after = ["logd"]
+stop_timeout = 2
